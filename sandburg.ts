@@ -80,13 +80,11 @@ const ACTIVE_MARKER = "sandburg-extension-v1";
 const RG_PROBE_MESSAGE = "sandburg-rg-wrapper-probe-hit";
 const BWRAP_MARKER = "# sandburg-extension-managed: sandburg-bwrap v1";
 const RG_MARKER = "# sandburg-extension-managed: rg-wrapper v1";
-const REAL_RG_BASENAME = "rg.sandburg-real";
 const AGENT_DIR = resolve(getAgentDir());
 const AGENT_BIN_DIR = join(AGENT_DIR, "bin");
 const AUTH_JSON_PATH = join(AGENT_DIR, "auth.json");
 const BWRAP_PATH = join(AGENT_BIN_DIR, "sandburg-bwrap");
 const RG_WRAPPER_PATH = join(AGENT_BIN_DIR, "rg");
-const REAL_RG_BACKUP_PATH = join(AGENT_BIN_DIR, REAL_RG_BASENAME);
 const JITI_CACHE_DIR = "/tmp/jiti";
 const EXTRA_RO_PATHS = (process.env.SANDBURG_RO_PATHS ?? "")
 	.split(":")
@@ -343,72 +341,10 @@ function findRealRgOnPathSkipping(binDir: string): string | undefined {
 	return undefined;
 }
 
-function moveExistingRgToBackup() {
-	if (isScriptFile(RG_WRAPPER_PATH)) {
-		fatal(
-			[
-				"Refusing to adopt an existing script as real ripgrep:",
-				"",
-				`  ${RG_WRAPPER_PATH}`,
-				"",
-				"This extension only adopts plain ripgrep binaries at that path. A script could already be a wrapper, causing recursion or bypass surprises.",
-			].join("\n"),
-		);
-	}
-
-	if (!isPlainRipgrep(RG_WRAPPER_PATH)) {
-		fatal(
-			[
-				"Refusing to replace existing rg helper:",
-				"",
-				`  ${RG_WRAPPER_PATH}`,
-				"",
-				"It is not managed by this extension and does not look like a plain ripgrep binary.",
-			].join("\n"),
-		);
-	}
-
-	renameSync(RG_WRAPPER_PATH, REAL_RG_BACKUP_PATH);
-}
-
-// Resolve the real ripgrep that the persistent wrapper will delegate to. If a
-// previous run already adopted one, keep using it. If Pi's managed-bin rg is an
-// unmanaged plain ripgrep binary, adopt it by moving it aside. Unmanaged scripts
-// are rejected because they may already be wrappers, which risks recursion or
-// hidden policy interactions. PATH fallback deliberately skips getAgentDir()/bin
-// and relative entries.
+// Resolve the real ripgrep that the persistent wrapper will delegate to. PATH
+// fallback deliberately skips getAgentDir()/bin and relative entries so the
+// wrapper cannot delegate to itself.
 function resolveRealRg(): string {
-	if (existsSync(REAL_RG_BACKUP_PATH)) {
-		if (!isPlainRipgrep(REAL_RG_BACKUP_PATH)) {
-			fatal(
-				[
-					"The sandbox rg backup exists but is not a plain ripgrep binary:",
-					"",
-					`  ${REAL_RG_BACKUP_PATH}`,
-				].join("\n"),
-			);
-		}
-
-		if (existsSync(RG_WRAPPER_PATH) && !isManagedFile(RG_WRAPPER_PATH, RG_MARKER)) {
-			fatal(
-				[
-					"The sandbox rg backup exists, but getAgentDir()/bin/rg is an unmanaged file:",
-					"",
-					`  ${RG_WRAPPER_PATH}`,
-					"",
-					`Expected the managed wrapper there and real ripgrep at ${REAL_RG_BACKUP_PATH}.`,
-				].join("\n"),
-			);
-		}
-
-		return REAL_RG_BACKUP_PATH;
-	}
-
-	if (existsSync(RG_WRAPPER_PATH) && !isManagedFile(RG_WRAPPER_PATH, RG_MARKER)) {
-		moveExistingRgToBackup();
-		return REAL_RG_BACKUP_PATH;
-	}
-
 	const realRg = findRealRgOnPathSkipping(AGENT_BIN_DIR);
 	if (!realRg) {
 		fatal(
@@ -430,8 +366,6 @@ function installSandboxHelpers() {
 
 	const realRg = resolveRealRg();
 	installManagedExecutable(RG_WRAPPER_PATH, rgWrapperScript(realRg, BWRAP_PATH), RG_MARKER, "rg wrapper");
-
-	return { realRg };
 }
 
 // Probe Pi's public grep tool factory rather than guessing lookup behavior.
