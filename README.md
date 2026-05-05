@@ -73,8 +73,8 @@ they live only inside Pi’s temporary sandbox.)
 
 ### Installing Sandburg
 
-Copy or link the extension as `sandburg.ts` into a Pi extension directory,
-for example `$HOME/.pi/agent/extensions`.
+Copy or link the extension directory `sandburg` (the one containing `index.ts`)
+into a Pi extension directory, for example `$HOME/.pi/agent/extensions`.
 
 It is highly recommended to launch Pi within an outer `bwrap` sandbox.
 The recommended setup using Sandkasten is described below.
