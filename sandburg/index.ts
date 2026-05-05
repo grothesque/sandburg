@@ -99,11 +99,11 @@ export default async function (pi: ExtensionAPI) {
 	};
 
 	pi.registerCommand("sandburg", {
-		description: "Show Sandburg sandbox status",
+		description: "Show sandburg sandbox status",
 		handler: async (_args, ctx) => {
 			const status = buildSandburgStatus(pi);
-			if (ctx.hasUI) ctx.ui.notify(status, "info");
-			else console.log(status);
+			if (ctx.hasUI) ctx.ui.notify(status.text, status.severity);
+			else console.log(status.text);
 		},
 	});
 

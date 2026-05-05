@@ -131,10 +131,6 @@ function isToolProtectedBySandburg(tool: ToolInfo): boolean {
 	return isSandburgToolSource(tool);
 }
 
-function formatList(items: string[]): string {
-	return items.length === 0 ? "(none)" : items.join(", ");
-}
-
 function appendPathList(lines: string[], label: string, paths: string[]) {
 	if (paths.length === 0) {
 		lines.push(`- ${label}: (none)`);
@@ -145,17 +141,19 @@ function appendPathList(lines: string[], label: string, paths: string[]) {
 	for (const path of paths) lines.push(`  - ${path}`);
 }
 
-function splitEnabledDisabled(tools: string[], enabledToolNames: Set<string>, order?: string[]) {
+function sortedToolNames(names: Iterable<string>, order?: string[]): string[] {
 	const orderIndex = new Map(order?.map((name, index) => [name, index]) ?? []);
-	const sortTools = (names: string[]) =>
-		names.sort((a, b) => (orderIndex.get(a) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(b) ?? Number.MAX_SAFE_INTEGER) || a.localeCompare(b));
-	return {
-		enabled: sortTools(tools.filter((name) => enabledToolNames.has(name))),
-		disabled: sortTools(tools.filter((name) => !enabledToolNames.has(name))),
-	};
+	return Array.from(new Set(names)).sort(
+		(a, b) => (orderIndex.get(a) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(b) ?? Number.MAX_SAFE_INTEGER) || a.localeCompare(b),
+	);
 }
 
-export function buildSandburgStatus(pi: ExtensionAPI): string {
+export type SandburgStatus = {
+	text: string;
+	severity: "success" | "warning";
+};
+
+export function buildSandburgStatus(pi: ExtensionAPI): SandburgStatus {
 	const mounts = parseMountInfo(readProcFile("/proc/self/mountinfo"));
 	const status = parseProcStatus(readProcFile("/proc/self/status"));
 	const uidMap = readProcFile("/proc/self/uid_map")?.trim();
@@ -182,71 +180,63 @@ export function buildSandburgStatus(pi: ExtensionAPI): string {
 		});
 	const allTools = pi.getAllTools();
 	const enabledToolNames = new Set(pi.getActiveTools());
-	const protectedTools = splitEnabledDisabled(
-		allTools.filter(isToolProtectedBySandburg).map((tool) => tool.name),
-		enabledToolNames,
+	const protectedToolNames = new Set(allTools.filter(isToolProtectedBySandburg).map((tool) => tool.name));
+	const activeUnprotectedSandburgTools = sortedToolNames(
+		SANDBURG_TOOL_NAMES.filter((name) => enabledToolNames.has(name) && !protectedToolNames.has(name)),
 		SANDBURG_TOOL_NAMES,
 	);
-	const builtinDiscoveryTools = splitEnabledDisabled(
-		allTools
-			.filter((tool) => BUILTIN_DISCOVERY_TOOL_NAME_SET.has(tool.name) && isBuiltinToolSource(tool, tool.name))
-			.map((tool) => tool.name),
-		enabledToolNames,
-		BUILTIN_DISCOVERY_TOOL_NAMES,
-	);
-	const otherTools = splitEnabledDisabled(
+	const unreviewedActiveTools = sortedToolNames(
 		allTools
 			.filter(
 				(tool) =>
-					!isToolProtectedBySandburg(tool) &&
+					enabledToolNames.has(tool.name) &&
+					!SANDBURG_TOOL_NAME_SET.has(tool.name) &&
 					!(BUILTIN_DISCOVERY_TOOL_NAME_SET.has(tool.name) && isBuiltinToolSource(tool, tool.name)),
 			)
 			.map((tool) => tool.name),
-		enabledToolNames,
 	);
-	const issues = [
-		process.env.SANDBURG_ACTIVE !== ACTIVE_MARKER && "extension marker is not active",
-		!isManagedFile(BWRAP_PATH, BWRAP_MARKER) && "inner sandbox helper is missing or unmanaged",
-		!isManagedFile(RG_WRAPPER_PATH, RG_MARKER) && "rg wrapper is missing or unmanaged",
-		otherTools.enabled.length > 0 && `enabled tools not classified by Sandburg: ${otherTools.enabled.join(", ")}`,
-		!namespaceSandboxDetected && "outer namespace sandbox was not detected",
-		broadHostExposures.length > 0 && "possible broad host exposure detected",
+	const warnings = [
+		process.env.SANDBURG_ACTIVE !== ACTIVE_MARKER && "sandburg extension marker is not active.",
+		!isManagedFile(BWRAP_PATH, BWRAP_MARKER) && "Inner sandbox helper is missing or unmanaged.",
+		!isManagedFile(RG_WRAPPER_PATH, RG_MARKER) && "rg wrapper is missing or unmanaged.",
+		activeUnprotectedSandburgTools.length > 0 && "Agent tool protection incomplete!",
+		unreviewedActiveTools.length > 0 && "Unreviewed active tools detected!",
+		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
+		broadHostExposures.length > 0 && "Broad host exposure detected!",
 	].filter(Boolean) as string[];
 	const protectedPaths = [AGENT_DIR, JITI_CACHE_DIR, ...EXTRA_RO_PATHS];
 
-	const lines = [
-		`Sandburg: ${issues.length === 0 ? "OK" : "CHECK"}`,
+	const lines = [warnings.length === 0 ? "Sandburg: OK" : "Check sandburg setup"];
+	if (warnings.length > 0) {
+		lines.push("");
+		for (const warning of warnings) lines.push(`- ${warning}`);
+	}
+
+	lines.push("", "Outer sandbox for the pi process");
+	if (namespaceSandboxDetected) {
+		appendPathList(lines, "host-writable mounts", hostWritableMounts);
+		if (broadHostExposures.length > 0) appendPathList(lines, "broad host exposure", broadHostExposures);
+	} else if (broadHostExposures.length > 0) {
+		appendPathList(lines, "broad host exposure", broadHostExposures);
+	} else {
+		lines.push("- not detected");
+	}
+
+	lines.push(
 		"",
-		"Tools protected by Sandburg",
-		`- enabled: ${formatList(protectedTools.enabled)}`,
-		`- disabled: ${formatList(protectedTools.disabled)}`,
-		"",
-		"Pi built-in discovery tools",
-		`- enabled: ${formatList(builtinDiscoveryTools.enabled)}`,
-		`- disabled: ${formatList(builtinDiscoveryTools.disabled)}`,
-		"",
-		"Other tools",
-		`- enabled: ${formatList(otherTools.enabled)}`,
-		`- disabled: ${formatList(otherTools.disabled)}`,
-		"",
-		"Sandburg protections",
-		"- Sandburg bash/grep: network disabled",
-		"- Sandburg file tools: protected paths denied",
+		"Agent tool restrictions",
+		"- network disabled",
 		"- protected paths:",
 		...protectedPaths.map((path) => `  - ${path}`),
-		"",
-		"Outer sandbox for the Pi process",
-		`- namespace sandbox: ${namespaceSandboxDetected ? "detected" : "not detected"}`,
-	];
-	appendPathList(lines, "host-writable mounts", hostWritableMounts);
-	if (broadHostExposures.length === 0) {
-		lines.push("- broad host exposure: none detected");
-	} else {
-		appendPathList(lines, "possible broad host exposure detected", broadHostExposures);
+	);
+
+	if (activeUnprotectedSandburgTools.length > 0 || unreviewedActiveTools.length > 0) {
+		lines.push("", "Tool warnings");
+		if (activeUnprotectedSandburgTools.length > 0) {
+			appendPathList(lines, "active sandburg tools not protected", activeUnprotectedSandburgTools);
+		}
+		if (unreviewedActiveTools.length > 0) appendPathList(lines, "unreviewed active tools", unreviewedActiveTools);
 	}
-	if (issues.length > 0) {
-		lines.push("", "Checks");
-		for (const issue of issues) lines.push(`- ${issue}`);
-	}
-	return lines.join("\n");
+
+	return { text: lines.join("\n"), severity: warnings.length === 0 ? "success" : "warning" };
 }
