@@ -25,7 +25,7 @@ import {
 	verifyPiGrepReachesRgWrapper,
 } from "./helpers.js";
 import { registerGuardedMutationToolDefinition, registerGuardedReadToolDefinition } from "./path-policy.js";
-import { buildSandburgStatus } from "./status.js";
+import { buildSandburgStatus, checkSandburgToolContract, type SandburgToolContractStatus } from "./status.js";
 
 const SANDBOXED_BASH_DESCRIPTION =
 	"Execute a bash command in the current working directory inside a sandbox with network access disabled. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.";
@@ -38,6 +38,9 @@ const SANDBOXED_BASH_PROMPT_GUIDELINES = [
 export default async function (pi: ExtensionAPI) {
 	installSandburgHelpers();
 	await verifyPiGrepReachesRgWrapper();
+
+	let toolContractStatus: SandburgToolContractStatus = { valid: true, violations: [] };
+	let disabledAllTools = false;
 
 	process.env.SANDBURG_ACTIVE = ACTIVE_MARKER;
 	process.env.SANDBURG_AGENT_DIR = AGENT_DIR;
@@ -98,10 +101,24 @@ export default async function (pi: ExtensionAPI) {
 		registerGuardedMutationToolDefinition(pi, editDefinition, localCwd);
 	};
 
+	const checkToolContract = (notify?: (message: string) => void) => {
+		const status = checkSandburgToolContract(pi);
+		if (!status.valid) {
+			pi.setActiveTools([]);
+			toolContractStatus = status;
+			disabledAllTools = true;
+			notify?.("sandburg disabled all tools because its tool contract is invalid.\nRun /sandburg for details.");
+			return;
+		}
+		toolContractStatus = status;
+		disabledAllTools = false;
+	};
+
 	pi.registerCommand("sandburg", {
 		description: "Show sandburg sandbox status",
 		handler: async (_args, ctx) => {
-			const status = buildSandburgStatus(pi);
+			checkToolContract();
+			const status = buildSandburgStatus(pi, toolContractStatus, disabledAllTools);
 			if (ctx.hasUI) ctx.ui.notify(status.text, status.severity);
 			else console.log(status.text);
 		},
@@ -109,5 +126,19 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		registerSandburgTools(ctx.cwd);
+		checkToolContract((message) => ctx.ui.notify(message, "warning"));
+	});
+
+	pi.on("before_agent_start", async () => {
+		if (!toolContractStatus.valid) {
+			pi.setActiveTools([]);
+			disabledAllTools = true;
+		}
+	});
+
+	pi.on("tool_call", async () => {
+		if (!toolContractStatus.valid) {
+			return { block: true, reason: "sandburg tool contract is invalid; all tools are disabled." };
+		}
 	});
 }

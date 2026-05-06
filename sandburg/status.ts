@@ -41,9 +41,10 @@ const VIRTUAL_FILESYSTEM_TYPES = new Set([
 ]);
 
 const SANDBURG_TOOL_NAMES = ["bash", "grep", "read", "write", "edit"];
-const SANDBURG_TOOL_NAME_SET = new Set(SANDBURG_TOOL_NAMES);
+const SANDBURG_REDEFINED_TOOL_NAMES = ["bash", "read", "write", "edit"];
 const BUILTIN_DISCOVERY_TOOL_NAMES = ["find", "ls"];
-const BUILTIN_DISCOVERY_TOOL_NAME_SET = new Set(BUILTIN_DISCOVERY_TOOL_NAMES);
+const BUILTIN_TOOL_NAMES = ["grep", ...BUILTIN_DISCOVERY_TOOL_NAMES];
+const KNOWN_TOOL_NAME_SET = new Set([...SANDBURG_TOOL_NAMES, ...BUILTIN_DISCOVERY_TOOL_NAMES]);
 
 function readProcFile(path: string): string | undefined {
 	try {
@@ -125,12 +126,6 @@ function isBuiltinToolSource(tool: ToolInfo, name: string): boolean {
 	return tool.sourceInfo.source === "builtin" && tool.sourceInfo.path === `<builtin:${name}>`;
 }
 
-function isToolProtectedBySandburg(tool: ToolInfo): boolean {
-	if (!SANDBURG_TOOL_NAME_SET.has(tool.name)) return false;
-	if (tool.name === "grep") return isBuiltinToolSource(tool, "grep") && isManagedFile(RG_WRAPPER_PATH, RG_MARKER);
-	return isSandburgToolSource(tool);
-}
-
 function appendPathList(lines: string[], label: string, paths: string[]) {
 	if (paths.length === 0) {
 		lines.push(`- ${label}: (none)`);
@@ -148,12 +143,56 @@ function sortedToolNames(names: Iterable<string>, order?: string[]): string[] {
 	);
 }
 
+export type SandburgToolContractStatus = {
+	valid: boolean;
+	violations: string[];
+};
+
 export type SandburgStatus = {
 	text: string;
 	severity: "success" | "warning";
 };
 
-export function buildSandburgStatus(pi: ExtensionAPI): SandburgStatus {
+function describeTool(tool: ToolInfo): string {
+	return `${tool.sourceInfo.source} ${tool.sourceInfo.path}`;
+}
+
+function toolByName(pi: ExtensionAPI): Map<string, ToolInfo> {
+	return new Map(pi.getAllTools().map((tool) => [tool.name, tool]));
+}
+
+export function checkSandburgToolContract(pi: ExtensionAPI): SandburgToolContractStatus {
+	const tools = toolByName(pi);
+	const violations: string[] = [];
+
+	if (process.env.SANDBURG_ACTIVE !== ACTIVE_MARKER) {
+		violations.push("sandburg extension marker is not active.");
+	}
+	if (!isManagedFile(BWRAP_PATH, BWRAP_MARKER)) {
+		violations.push("Inner sandbox helper is missing or unmanaged.");
+	}
+	if (!isManagedFile(RG_WRAPPER_PATH, RG_MARKER)) {
+		violations.push("rg wrapper is missing or unmanaged.");
+	}
+
+	for (const name of SANDBURG_REDEFINED_TOOL_NAMES) {
+		const tool = tools.get(name);
+		if (tool && !isSandburgToolSource(tool)) {
+			violations.push(`${name}: expected sandburg tool, found ${describeTool(tool)}.`);
+		}
+	}
+
+	for (const name of BUILTIN_TOOL_NAMES) {
+		const tool = tools.get(name);
+		if (tool && !isBuiltinToolSource(tool, name)) {
+			violations.push(`${name}: expected pi builtin tool, found ${describeTool(tool)}.`);
+		}
+	}
+
+	return { valid: violations.length === 0, violations };
+}
+
+export function buildSandburgStatus(pi: ExtensionAPI, toolContract = checkSandburgToolContract(pi), disabledAllTools = false): SandburgStatus {
 	const mounts = parseMountInfo(readProcFile("/proc/self/mountinfo"));
 	const status = parseProcStatus(readProcFile("/proc/self/status"));
 	const uidMap = readProcFile("/proc/self/uid_map")?.trim();
@@ -180,27 +219,12 @@ export function buildSandburgStatus(pi: ExtensionAPI): SandburgStatus {
 		});
 	const allTools = pi.getAllTools();
 	const enabledToolNames = new Set(pi.getActiveTools());
-	const protectedToolNames = new Set(allTools.filter(isToolProtectedBySandburg).map((tool) => tool.name));
-	const activeUnprotectedSandburgTools = sortedToolNames(
-		SANDBURG_TOOL_NAMES.filter((name) => enabledToolNames.has(name) && !protectedToolNames.has(name)),
-		SANDBURG_TOOL_NAMES,
-	);
-	const unreviewedActiveTools = sortedToolNames(
-		allTools
-			.filter(
-				(tool) =>
-					enabledToolNames.has(tool.name) &&
-					!SANDBURG_TOOL_NAME_SET.has(tool.name) &&
-					!(BUILTIN_DISCOVERY_TOOL_NAME_SET.has(tool.name) && isBuiltinToolSource(tool, tool.name)),
-			)
-			.map((tool) => tool.name),
+	const additionalActiveTools = sortedToolNames(
+		allTools.filter((tool) => enabledToolNames.has(tool.name) && !KNOWN_TOOL_NAME_SET.has(tool.name)).map((tool) => tool.name),
 	);
 	const warnings = [
-		process.env.SANDBURG_ACTIVE !== ACTIVE_MARKER && "sandburg extension marker is not active.",
-		!isManagedFile(BWRAP_PATH, BWRAP_MARKER) && "Inner sandbox helper is missing or unmanaged.",
-		!isManagedFile(RG_WRAPPER_PATH, RG_MARKER) && "rg wrapper is missing or unmanaged.",
-		activeUnprotectedSandburgTools.length > 0 && "Agent tool protection incomplete!",
-		unreviewedActiveTools.length > 0 && "Unreviewed active tools detected!",
+		!toolContract.valid && "sandburg tool contract is invalid!",
+		disabledAllTools && "All tools were disabled.",
 		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
 		broadHostExposures.length > 0 && "Broad host exposure detected!",
 	].filter(Boolean) as string[];
@@ -210,6 +234,16 @@ export function buildSandburgStatus(pi: ExtensionAPI): SandburgStatus {
 	if (warnings.length > 0) {
 		lines.push("");
 		for (const warning of warnings) lines.push(`- ${warning}`);
+	}
+
+	if (additionalActiveTools.length > 0) {
+		lines.push("", "Additional active tools outside sandburg contract");
+		for (const name of additionalActiveTools) lines.push(`- ${name}`);
+	}
+
+	if (toolContract.violations.length > 0) {
+		lines.push("", "Sandburg contract violations");
+		for (const violation of toolContract.violations) lines.push(`- ${violation}`);
 	}
 
 	lines.push("", "Outer sandbox for the pi process");
@@ -229,14 +263,6 @@ export function buildSandburgStatus(pi: ExtensionAPI): SandburgStatus {
 		"- protected paths:",
 		...protectedPaths.map((path) => `  - ${path}`),
 	);
-
-	if (activeUnprotectedSandburgTools.length > 0 || unreviewedActiveTools.length > 0) {
-		lines.push("", "Tool warnings");
-		if (activeUnprotectedSandburgTools.length > 0) {
-			appendPathList(lines, "active sandburg tools not protected", activeUnprotectedSandburgTools);
-		}
-		if (unreviewedActiveTools.length > 0) appendPathList(lines, "unreviewed active tools", unreviewedActiveTools);
-	}
 
 	return { text: lines.join("\n"), severity: warnings.length === 0 ? "success" : "warning" };
 }

@@ -190,11 +190,10 @@ In addition, Sandburg restricts the built-in tools in the following way:
   `read`, `write`, and `edit` are also made sequential to avoid same-turn
   path-policy races.
 - `ls` and `find` do not need to be reimplemented since they neither read files nor access the network.
-  They remain Pi’s ordinary built-in tools;
-  Sandburg relies on them running inside the already restricted Pi process.
+  Sandburg verifies that they remain Pi’s ordinary built-in tools.
 
-On each reload, Sandburg ensures that this tool contract is valid
-and warns if it is not.
+On each reload, Sandburg ensures that this tool contract is valid.
+If it is not, it disables all tools and warns the user.
 
 Caveat: Since Sandburg installs its managed `rg` wrapper for use by Pi’s built-in grep tool,
 a user command such as `! rg ...` will typically resolve to that wrapper
