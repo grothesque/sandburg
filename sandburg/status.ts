@@ -46,6 +46,27 @@ const BUILTIN_DISCOVERY_TOOL_NAMES = ["find", "ls"];
 const BUILTIN_TOOL_NAMES = ["grep", ...BUILTIN_DISCOVERY_TOOL_NAMES];
 const KNOWN_TOOL_NAME_SET = new Set([...SANDBURG_TOOL_NAMES, ...BUILTIN_DISCOVERY_TOOL_NAMES]);
 
+// Pi tool-model assumptions relied on by the contract check below:
+//
+// - Pi starts with built-in tools in the registry.
+// - An extension can replace a built-in tool by registering a tool with the
+//   same name.
+// - Extension tools are de-duplicated by name in extension load order: the
+//   first extension owning a registered tool name wins among extension tools.
+// - Therefore, once sandburg’s replacements for bash/read/write/edit are the
+//   effective tools after load/reload, later-loaded extensions cannot silently
+//   replace them during the same extension runtime.
+// - A previously loaded extension that deliberately registers a protected name
+//   later at runtime is trusted dynamic extension behavior; sandburg does not
+//   continuously police that with per-call contract checks.
+// - Newly introduced tools with different names may still appear and become
+//   active; those are user-controlled extensions, not sandburg contract
+//   failures. We warn about them at load/reload and in /sandburg status.
+//
+// If Pi’s tool registration or override semantics change, re-audit this file
+// and sandburg/index.ts before relying on a startup contract check being
+// stable for the whole session.
+
 function readProcFile(path: string): string | undefined {
 	try {
 		return readFileSync(path, "utf-8");
@@ -153,12 +174,32 @@ export type SandburgStatus = {
 	severity: "success" | "warning";
 };
 
-function describeTool(tool: ToolInfo): string {
-	return `${tool.sourceInfo.source} ${tool.sourceInfo.path}`;
+function describeToolSource(tool: ToolInfo): string {
+	const path = tool.sourceInfo.path;
+	switch (tool.sourceInfo.source) {
+		case "auto":
+			return `auto-loaded extension: ${path}`;
+		case "local":
+			return `local extension: ${path}`;
+		case "cli":
+			return `CLI extension: ${path}`;
+		case "builtin":
+			return `Pi built-in tool: ${path}`;
+		default:
+			return `${tool.sourceInfo.source} extension: ${path}`;
+	}
 }
 
 function toolByName(pi: ExtensionAPI): Map<string, ToolInfo> {
 	return new Map(pi.getAllTools().map((tool) => [tool.name, tool]));
+}
+
+export function getAdditionalActiveToolNames(pi: ExtensionAPI): string[] {
+	const allTools = pi.getAllTools();
+	const enabledToolNames = new Set(pi.getActiveTools());
+	return sortedToolNames(
+		allTools.filter((tool) => enabledToolNames.has(tool.name) && !KNOWN_TOOL_NAME_SET.has(tool.name)).map((tool) => tool.name),
+	);
 }
 
 export function checkSandburgToolContract(pi: ExtensionAPI): SandburgToolContractStatus {
@@ -178,14 +219,14 @@ export function checkSandburgToolContract(pi: ExtensionAPI): SandburgToolContrac
 	for (const name of SANDBURG_REDEFINED_TOOL_NAMES) {
 		const tool = tools.get(name);
 		if (tool && !isSandburgToolSource(tool)) {
-			violations.push(`${name}: expected sandburg tool, found ${describeTool(tool)}.`);
+			violations.push(`${name}: expected sandburg-managed tool; found ${describeToolSource(tool)}.`);
 		}
 	}
 
 	for (const name of BUILTIN_TOOL_NAMES) {
 		const tool = tools.get(name);
 		if (tool && !isBuiltinToolSource(tool, name)) {
-			violations.push(`${name}: expected pi builtin tool, found ${describeTool(tool)}.`);
+			violations.push(`${name}: expected Pi built-in tool; found ${describeToolSource(tool)}.`);
 		}
 	}
 
@@ -217,14 +258,15 @@ export function buildSandburgStatus(pi: ExtensionAPI, toolContract = checkSandbu
 			const mode = mount.fsType === "overlay" ? "tmp overlay" : isReadOnlyMount(mount) ? "read-only" : "writable";
 			return `${mount.mountPoint} (${mode})`;
 		});
-	const allTools = pi.getAllTools();
-	const enabledToolNames = new Set(pi.getActiveTools());
-	const additionalActiveTools = sortedToolNames(
-		allTools.filter((tool) => enabledToolNames.has(tool.name) && !KNOWN_TOOL_NAME_SET.has(tool.name)).map((tool) => tool.name),
-	);
+	const additionalActiveTools = getAdditionalActiveToolNames(pi);
 	const warnings = [
-		!toolContract.valid && "sandburg tool contract is invalid!",
-		disabledAllTools && "All tools were disabled.",
+		!toolContract.valid &&
+			(disabledAllTools
+				? "Sandburg tool contract is invalid, so all tools are disabled."
+				: "Sandburg tool contract is invalid."),
+		toolContract.valid && disabledAllTools && "All tools are disabled.",
+		additionalActiveTools.length > 0 &&
+			`Additional tools are active outside the sandburg contract: ${additionalActiveTools.join(", ")}`,
 		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
 		broadHostExposures.length > 0 && "Broad host exposure detected!",
 	].filter(Boolean) as string[];
@@ -236,13 +278,8 @@ export function buildSandburgStatus(pi: ExtensionAPI, toolContract = checkSandbu
 		for (const warning of warnings) lines.push(`- ${warning}`);
 	}
 
-	if (additionalActiveTools.length > 0) {
-		lines.push("", "Additional active tools outside sandburg contract");
-		for (const name of additionalActiveTools) lines.push(`- ${name}`);
-	}
-
 	if (toolContract.violations.length > 0) {
-		lines.push("", "Sandburg contract violations");
+		lines.push("", "Sandburg tool contract violations");
 		for (const violation of toolContract.violations) lines.push(`- ${violation}`);
 	}
 

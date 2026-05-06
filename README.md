@@ -201,6 +201,7 @@ and run ripgrep inside Sandburg’s tool sandbox.
 This mainly affects searches of Sandburg-protected paths such as Pi agent state.
 To run ripgrep exactly as an unrestricted user command, invoke the real binary directly,
 for example `/usr/bin/rg`, adjusted for your system.
+
 ## Threat model and limitations
 
 A carefully set up Sandburg + Sandkasten is meant to be
@@ -220,3 +221,4 @@ A bug in bubblewrap or an exploitable kernel vulnerability could allow
 sandbox escape.
 
 Sandburg does not constrain agent tools beyond the built-in ones.
+The `/sandburg` command lists any such additional tools that are active.

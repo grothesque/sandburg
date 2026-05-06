@@ -25,7 +25,12 @@ import {
 	verifyPiGrepReachesRgWrapper,
 } from "./helpers.js";
 import { registerGuardedMutationToolDefinition, registerGuardedReadToolDefinition } from "./path-policy.js";
-import { buildSandburgStatus, checkSandburgToolContract, type SandburgToolContractStatus } from "./status.js";
+import {
+	buildSandburgStatus,
+	checkSandburgToolContract,
+	getAdditionalActiveToolNames,
+	type SandburgToolContractStatus,
+} from "./status.js";
 
 const SANDBOXED_BASH_DESCRIPTION =
 	"Execute a bash command in the current working directory inside a sandbox with network access disabled. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.";
@@ -107,11 +112,25 @@ export default async function (pi: ExtensionAPI) {
 			pi.setActiveTools([]);
 			toolContractStatus = status;
 			disabledAllTools = true;
-			notify?.("sandburg disabled all tools because its tool contract is invalid.\nRun /sandburg for details.");
+			notify?.("Sandburg tool contract is invalid, so all tools are disabled.\nRun /sandburg for details.\n");
 			return;
 		}
 		toolContractStatus = status;
 		disabledAllTools = false;
+	};
+
+	// This is intentionally a load/reload-time warning, not a hard contract
+	// failure and not a per-tool-call gate. Under Pi’s current same-name tool
+	// de-duplication semantics, later-loaded extensions cannot replace
+	// sandburg’s protected tool replacements after the contract check passes.
+	// Dynamic runtime tool registration is trusted user extension behavior. This
+	// warning is meant to catch forgotten extensions in the load path, while
+	// keeping intentionally enabled tools usable.
+	const warnAboutAdditionalActiveTools = (notify?: (message: string) => void) => {
+		if (!toolContractStatus.valid) return;
+		const names = getAdditionalActiveToolNames(pi);
+		if (names.length === 0) return;
+		notify?.(`Additional tools are active outside the sandburg contract: ${names.join(", ")}. They remain enabled. Run /sandburg for details.\n`);
 	};
 
 	pi.registerCommand("sandburg", {
@@ -127,6 +146,7 @@ export default async function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		registerSandburgTools(ctx.cwd);
 		checkToolContract((message) => ctx.ui.notify(message, "warning"));
+		warnAboutAdditionalActiveTools((message) => ctx.ui.notify(message, "warning"));
 	});
 
 	pi.on("before_agent_start", async () => {
