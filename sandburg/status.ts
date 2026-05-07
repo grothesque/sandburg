@@ -237,7 +237,7 @@ export function checkSandburgSetup(pi: ExtensionAPI, setupViolations: string[] =
 	return { valid: violationList.length === 0, violations: violationList };
 }
 
-export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandburgSetup(pi), disabledAllTools = false): SandburgStatus {
+export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandburgSetup(pi), toolsDisabledUntilReload = false): SandburgStatus {
 	const mounts = parseMountInfo(readProcFile("/proc/self/mountinfo"));
 	const status = parseProcStatus(readProcFile("/proc/self/status"));
 	const uidMap = readProcFile("/proc/self/uid_map")?.trim();
@@ -265,10 +265,10 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 	const additionalActiveTools = getAdditionalActiveToolNames(pi);
 	const warnings = [
 		!sandburgCheck.valid &&
-			(disabledAllTools
-				? "Sandburg setup is invalid, so all tools are disabled."
+			(toolsDisabledUntilReload
+				? "Sandburg setup is invalid, so all tools are disabled until /reload."
 				: "Sandburg setup is invalid."),
-		sandburgCheck.valid && disabledAllTools && "All tools are disabled.",
+		sandburgCheck.valid && toolsDisabledUntilReload && "All tools are disabled until /reload.",
 		additionalActiveTools.length > 0 &&
 			`Additional tools are active outside the sandburg core tool set: ${additionalActiveTools.join(", ")}`,
 		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",

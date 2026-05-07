@@ -45,7 +45,7 @@ export default async function (pi: ExtensionAPI) {
 	if (setupViolations.length === 0) setupViolations.push(...(await verifyPiGrepReachesRgWrapper()));
 
 	let sandburgStatus: SandburgCheckStatus = { valid: true, violations: [] };
-	let disabledAllTools = false;
+	let toolsDisabledUntilReload = false;
 
 	process.env.SANDBURG_ACTIVE = ACTIVE_MARKER;
 	process.env.SANDBURG_AGENT_DIR = AGENT_DIR;
@@ -106,17 +106,19 @@ export default async function (pi: ExtensionAPI) {
 		registerGuardedMutationToolDefinition(pi, editDefinition, localCwd);
 	};
 
+	const disableToolsUntilReload = (notify?: (message: string) => void) => {
+		pi.setActiveTools([]);
+		toolsDisabledUntilReload = true;
+		notify?.("Sandburg setup is invalid, so all tools are disabled until /reload.\nRun /sandburg for details.\n");
+	};
+
 	const checkSandburg = (notify?: (message: string) => void) => {
 		const status = checkSandburgSetup(pi, setupViolations);
-		if (!status.valid) {
-			pi.setActiveTools([]);
-			sandburgStatus = status;
-			disabledAllTools = true;
-			notify?.("Sandburg setup is invalid, so all tools are disabled.\nRun /sandburg for details.\n");
-			return;
-		}
 		sandburgStatus = status;
-		disabledAllTools = false;
+
+		if (!status.valid) {
+			disableToolsUntilReload(notify);
+		}
 	};
 
 	// This is intentionally a load/reload-time warning, not a hard setup failure
@@ -137,7 +139,7 @@ export default async function (pi: ExtensionAPI) {
 		description: "Show sandburg sandbox status",
 		handler: async (_args, ctx) => {
 			checkSandburg();
-			const status = buildSandburgStatus(pi, sandburgStatus, disabledAllTools);
+			const status = buildSandburgStatus(pi, sandburgStatus, toolsDisabledUntilReload);
 			if (ctx.hasUI) ctx.ui.notify(status.text, status.severity);
 			else console.log(status.text);
 		},
@@ -150,15 +152,14 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async () => {
-		if (!sandburgStatus.valid) {
+		if (toolsDisabledUntilReload) {
 			pi.setActiveTools([]);
-			disabledAllTools = true;
 		}
 	});
 
 	pi.on("tool_call", async () => {
-		if (!sandburgStatus.valid) {
-			return { block: true, reason: "sandburg setup is invalid; all tools are disabled." };
+		if (toolsDisabledUntilReload) {
+			return { block: true, reason: "sandburg disabled all tools until /reload." };
 		}
 	});
 }
