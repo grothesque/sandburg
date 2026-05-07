@@ -2,7 +2,9 @@
 import { createGrepToolDefinition, getAgentDir } from "@mariozechner/pi-coding-agent";
 import { spawnSync } from "child_process";
 import {
+	accessSync,
 	chmodSync,
+	constants,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -16,8 +18,8 @@ import { basename, dirname, isAbsolute, join, resolve } from "path";
 
 export const ACTIVE_MARKER = "sandburg-extension-v1";
 const RG_PROBE_MESSAGE = "sandburg-rg-wrapper-probe-hit";
-export const TOOL_SANDBOX_RUNNER_MARKER = "# sandburg-extension-managed: tool-sandbox-runner v1";
-export const RG_MARKER = "# sandburg-extension-managed: rg-wrapper v1";
+export const TOOL_SANDBOX_RUNNER_MARKER = "# sandburg-extension-managed: tool-sandbox-runner";
+export const RG_MARKER = "# sandburg-extension-managed: rg-wrapper";
 export const AGENT_DIR = resolve(getAgentDir());
 export const AGENT_BIN_DIR = join(AGENT_DIR, "bin");
 export const AUTH_JSON_PATH = join(AGENT_DIR, "auth.json");
@@ -26,6 +28,13 @@ export const RG_WRAPPER_PATH = join(AGENT_BIN_DIR, "rg");
 export const JITI_CACHE_DIR = "/tmp/jiti";
 const extraRoPathsValue = process.env.SANDBURG_RO_PATHS ?? "";
 export const EXTRA_RO_PATHS = extraRoPathsValue === "" ? [] : extraRoPathsValue.split(":");
+
+type ManagedExecutableSpec = {
+	label: string;
+	path: string;
+	marker: string;
+	content: string;
+};
 
 const TOOL_SANDBOX_RUNNER_SCRIPT = `#!/usr/bin/env bash
 ${TOOL_SANDBOX_RUNNER_MARKER}
@@ -77,7 +86,7 @@ bwrap_args=(
 # colon-separated list. Each path is rebound read-only so agent-facing
 # subprocesses cannot mutate protected Pi state through explicit backing-store
 # aliases. bwrap fails closed if a configured path is missing; invalid entries
-# are rejected by the extension's tool contract before agent tools run.
+# are rejected by the extension's setup check before agent tools run.
 IFS=: read -r -a extra_ro_path_array <<< "$extra_ro_paths"
 for path in "\${extra_ro_path_array[@]}"; do
     bwrap_args+=(--ro-bind "$path" "$path")
@@ -155,30 +164,14 @@ exec "$tool_sandbox_runner" "$real_rg" "$@"
 `;
 }
 
-function fatal(message: string): never {
-	throw new Error(
-		[
-			"Sandburg Pi extension cannot start.",
-			message,
-			"",
-			"Refusing to run without sandbox helpers installed safely.",
-			"Inspect the path above. If it is safe to replace, move it aside or delete it, then restart Pi.",
-			"If it is an older manually installed Sandburg Pi helper, remove it; this extension will recreate it.",
-		].join("\n"),
-	);
-}
-
-export function isManagedFile(path: string, marker: string): boolean {
-	try {
-		return readFileSync(path, "utf-8").includes(marker);
-	} catch {
-		return false;
-	}
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 function isExecutable(path: string): boolean {
 	try {
-		return (statSync(path).mode & 0o111) !== 0;
+		accessSync(path, constants.X_OK);
+		return true;
 	} catch {
 		return false;
 	}
@@ -220,23 +213,64 @@ function writeExecutable(path: string, content: string) {
 	}
 }
 
-function installManagedExecutable(path: string, content: string, marker: string, label: string) {
-	if (existsSync(path) && !isManagedFile(path, marker)) {
-		fatal(
-			[
-				`Refusing to replace existing ${label}:`,
-				"",
-				`  ${path}`,
-				"",
-				"The file is not managed by this extension.",
-			].join("\n"),
-		);
+function ensureExecutable(path: string, label: string): string[] {
+	if (isExecutable(path)) return [];
+
+	try {
+		chmodSync(path, statSync(path).mode | 0o100);
+	} catch (error) {
+		return [`${label}: cannot make executable: ${path}: ${errorMessage(error)}`];
 	}
 
-	if (!existsSync(path) || readFileSync(path, "utf-8") !== content) {
-		writeExecutable(path, content);
+	return isExecutable(path) ? [] : [`${label}: is not executable: ${path}`];
+}
+
+function readExistingManagedExecutable(spec: ManagedExecutableSpec): { content?: string; violations: string[] } {
+	if (!existsSync(spec.path)) return { violations: [] };
+
+	let content: string;
+	try {
+		content = readFileSync(spec.path, "utf-8");
+	} catch (error) {
+		return { violations: [`${spec.label}: cannot read: ${spec.path}: ${errorMessage(error)}`] };
 	}
-	chmodSync(path, 0o755);
+
+	if (!content.includes(spec.marker)) {
+		return { violations: [`${spec.label}: unmanaged file at ${spec.path}`] };
+	}
+
+	return { content, violations: [] };
+}
+
+function installManagedExecutable(spec: ManagedExecutableSpec): string[] {
+	const existing = readExistingManagedExecutable(spec);
+	if (existing.violations.length > 0) return existing.violations;
+
+	if (existing.content !== spec.content) {
+		try {
+			writeExecutable(spec.path, spec.content);
+		} catch (error) {
+			return [`${spec.label}: cannot install: ${spec.path}: ${errorMessage(error)}`];
+		}
+	}
+
+	return ensureExecutable(spec.path, spec.label);
+}
+
+function checkManagedExecutable(spec: ManagedExecutableSpec): string[] {
+	if (!existsSync(spec.path)) return [`${spec.label}: missing: ${spec.path}`];
+
+	const existing = readExistingManagedExecutable(spec);
+	if (existing.violations.length > 0) return existing.violations;
+
+	const violations: string[] = [];
+	if (existing.content !== spec.content) {
+		violations.push(`${spec.label}: contents differ from this extension's expected helper: ${spec.path}`);
+	}
+	if (!isExecutable(spec.path)) {
+		violations.push(`${spec.label}: not executable: ${spec.path}`);
+	}
+	return violations;
 }
 
 function pathEntries(pathValue: string): string[] {
@@ -265,42 +299,63 @@ function findRealRgOnPathSkipping(binDir: string): string | undefined {
 	return undefined;
 }
 
+const NO_REAL_RG_VIOLATION = `rg wrapper: no real ripgrep binary found outside ${AGENT_BIN_DIR}; install ripgrep or adjust PATH, then /reload.`;
+
 // Resolve the real ripgrep that the persistent wrapper will delegate to. PATH
 // fallback deliberately skips getAgentDir()/bin and relative entries so the
 // wrapper cannot delegate to itself.
-function resolveRealRg(): string {
-	const realRg = findRealRgOnPathSkipping(AGENT_BIN_DIR);
-	if (!realRg) {
-		fatal(
-			[
-				"No real ripgrep binary was found.",
-				"",
-				`This extension needs real rg so it can install ${RG_WRAPPER_PATH} as a sandbox wrapper.`,
-				`Install ripgrep or ensure rg is available outside ${AGENT_BIN_DIR}, then restart Pi.`,
-			].join("\n"),
-		);
-	}
-
-	return realRg;
+function resolveRealRg(): string | undefined {
+	return findRealRgOnPathSkipping(AGENT_BIN_DIR);
 }
 
-export function installSandburgHelpers() {
-	mkdirSync(AGENT_BIN_DIR, { recursive: true });
-	installManagedExecutable(
-		TOOL_SANDBOX_RUNNER_PATH,
-		TOOL_SANDBOX_RUNNER_SCRIPT,
-		TOOL_SANDBOX_RUNNER_MARKER,
-		"tool sandbox runner",
-	);
+function getManagedHelperSpecs(): { specs: ManagedExecutableSpec[]; violations: string[] } {
+	const specs: ManagedExecutableSpec[] = [
+		{
+			label: "tool sandbox runner",
+			path: TOOL_SANDBOX_RUNNER_PATH,
+			marker: TOOL_SANDBOX_RUNNER_MARKER,
+			content: TOOL_SANDBOX_RUNNER_SCRIPT,
+		},
+	];
 
 	const realRg = resolveRealRg();
-	installManagedExecutable(RG_WRAPPER_PATH, rgWrapperScript(realRg, TOOL_SANDBOX_RUNNER_PATH), RG_MARKER, "rg wrapper");
+	if (!realRg) return { specs, violations: [NO_REAL_RG_VIOLATION] };
+
+	specs.push({
+		label: "rg wrapper",
+		path: RG_WRAPPER_PATH,
+		marker: RG_MARKER,
+		content: rgWrapperScript(realRg, TOOL_SANDBOX_RUNNER_PATH),
+	});
+	return { specs, violations: [] };
+}
+
+export function installSandburgHelpers(): string[] {
+	try {
+		mkdirSync(AGENT_BIN_DIR, { recursive: true });
+	} catch (error) {
+		return [`agent bin directory: cannot create ${AGENT_BIN_DIR}: ${errorMessage(error)}`];
+	}
+
+	const { specs, violations } = getManagedHelperSpecs();
+	if (violations.length > 0) return violations;
+
+	for (const spec of specs) {
+		const specViolations = installManagedExecutable(spec);
+		if (specViolations.length > 0) return specViolations;
+	}
+	return [];
+}
+
+export function checkSandburgHelpers(): string[] {
+	const { specs, violations } = getManagedHelperSpecs();
+	return [...violations, ...specs.flatMap((spec) => checkManagedExecutable(spec))];
 }
 
 // Probe Pi's public grep tool factory rather than guessing lookup behavior.
 // The generated rg wrapper exits early with a distinctive stderr message when
 // this env var is set, so the probe does not write to disk or enter the tool sandbox.
-export async function verifyPiGrepReachesRgWrapper() {
+export async function verifyPiGrepReachesRgWrapper(): Promise<string[]> {
 	const previousProbe = process.env.SANDBURG_RG_WRAPPER_PROBE;
 	process.env.SANDBURG_RG_WRAPPER_PROBE = ACTIVE_MARKER;
 	try {
@@ -317,28 +372,17 @@ export async function verifyPiGrepReachesRgWrapper() {
 			undefined,
 		);
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		if (message.includes(RG_PROBE_MESSAGE)) return;
-		fatal(
-			[
-				"Pi's grep tool invoked rg, but the managed wrapper probe did not respond as expected.",
-				"",
-				`  wrapper: ${RG_WRAPPER_PATH}`,
-				`  error: ${message}`,
-			].join("\n"),
-		);
+		const message = errorMessage(error);
+		if (message.includes(RG_PROBE_MESSAGE)) return [];
+		return [
+			`Pi's grep tool invoked rg, but the managed wrapper probe did not respond as expected; wrapper: ${RG_WRAPPER_PATH}; error: ${message}`,
+		];
 	} finally {
 		if (previousProbe === undefined) delete process.env.SANDBURG_RG_WRAPPER_PROBE;
 		else process.env.SANDBURG_RG_WRAPPER_PROBE = previousProbe;
 	}
 
-	fatal(
-		[
-			"Pi's grep tool did not invoke the managed rg wrapper:",
-			"",
-			`  ${RG_WRAPPER_PATH}`,
-			"",
-			"The bash tool would be sandboxed, but grep would bypass the tool sandbox.",
-		].join("\n"),
-	);
+	return [
+		`Pi's grep tool did not invoke the managed rg wrapper: ${RG_WRAPPER_PATH}; bash would be sandboxed, but grep would bypass the tool sandbox.`,
+	];
 }

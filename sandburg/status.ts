@@ -5,13 +5,9 @@ import { isAbsolute } from "path";
 import {
 	ACTIVE_MARKER,
 	AGENT_DIR,
-	TOOL_SANDBOX_RUNNER_MARKER,
-	TOOL_SANDBOX_RUNNER_PATH,
 	EXTRA_RO_PATHS,
 	JITI_CACHE_DIR,
-	RG_MARKER,
-	RG_WRAPPER_PATH,
-	isManagedFile,
+	checkSandburgHelpers,
 } from "./helpers.js";
 
 type ToolInfo = ReturnType<ExtensionAPI["getAllTools"]>[number];
@@ -47,7 +43,7 @@ const BUILTIN_DISCOVERY_TOOL_NAMES = ["find", "ls"];
 const BUILTIN_TOOL_NAMES = ["grep", ...BUILTIN_DISCOVERY_TOOL_NAMES];
 const KNOWN_TOOL_NAME_SET = new Set([...SANDBURG_TOOL_NAMES, ...BUILTIN_DISCOVERY_TOOL_NAMES]);
 
-// Pi tool-model assumptions relied on by the contract check below:
+// Pi tool-model assumptions relied on by the setup check below:
 //
 // - Pi starts with built-in tools in the registry.
 // - An extension can replace a built-in tool by registering a tool with the
@@ -59,13 +55,13 @@ const KNOWN_TOOL_NAME_SET = new Set([...SANDBURG_TOOL_NAMES, ...BUILTIN_DISCOVER
 //   replace them during the same extension runtime.
 // - A previously loaded extension that deliberately registers a protected name
 //   later at runtime is trusted dynamic extension behavior; sandburg does not
-//   continuously police that with per-call contract checks.
+//   continuously police that with per-call setup checks.
 // - Newly introduced tools with different names may still appear and become
-//   active; those are user-controlled extensions, not sandburg contract
-//   failures. We warn about them at load/reload and in /sandburg status.
+//   active; those are user-controlled extensions, not sandburg setup failures.
+//   We warn about them at load/reload and in /sandburg status.
 //
 // If Pi’s tool registration or override semantics change, re-audit this file
-// and sandburg/index.ts before relying on a startup contract check being
+// and sandburg/index.ts before relying on a startup setup check being
 // stable for the whole session.
 
 function readProcFile(path: string): string | undefined {
@@ -165,7 +161,7 @@ function sortedToolNames(names: Iterable<string>, order?: string[]): string[] {
 	);
 }
 
-export type SandburgToolContractStatus = {
+export type SandburgCheckStatus = {
 	valid: boolean;
 	violations: string[];
 };
@@ -213,39 +209,35 @@ export function getAdditionalActiveToolNames(pi: ExtensionAPI): string[] {
 	);
 }
 
-export function checkSandburgToolContract(pi: ExtensionAPI): SandburgToolContractStatus {
+export function checkSandburgSetup(pi: ExtensionAPI, setupViolations: string[] = []): SandburgCheckStatus {
 	const tools = toolByName(pi);
-	const violations: string[] = [];
+	const violations = new Set<string>(setupViolations);
 
 	if (process.env.SANDBURG_ACTIVE !== ACTIVE_MARKER) {
-		violations.push("sandburg extension marker is not active.");
+		violations.add("sandburg extension marker is not active.");
 	}
-	if (!isManagedFile(TOOL_SANDBOX_RUNNER_PATH, TOOL_SANDBOX_RUNNER_MARKER)) {
-		violations.push("Tool sandbox runner is missing or unmanaged.");
-	}
-	if (!isManagedFile(RG_WRAPPER_PATH, RG_MARKER)) {
-		violations.push("rg wrapper is missing or unmanaged.");
-	}
-	violations.push(...getExtraRoPathViolations());
+	for (const violation of checkSandburgHelpers()) violations.add(violation);
+	for (const violation of getExtraRoPathViolations()) violations.add(violation);
 
 	for (const name of SANDBURG_REDEFINED_TOOL_NAMES) {
 		const tool = tools.get(name);
 		if (tool && !isSandburgToolSource(tool)) {
-			violations.push(`${name}: expected sandburg-managed tool; found ${describeToolSource(tool)}.`);
+			violations.add(`${name}: expected sandburg-managed tool; found ${describeToolSource(tool)}.`);
 		}
 	}
 
 	for (const name of BUILTIN_TOOL_NAMES) {
 		const tool = tools.get(name);
 		if (tool && !isBuiltinToolSource(tool, name)) {
-			violations.push(`${name}: expected Pi built-in tool; found ${describeToolSource(tool)}.`);
+			violations.add(`${name}: expected Pi built-in tool; found ${describeToolSource(tool)}.`);
 		}
 	}
 
-	return { valid: violations.length === 0, violations };
+	const violationList = [...violations];
+	return { valid: violationList.length === 0, violations: violationList };
 }
 
-export function buildSandburgStatus(pi: ExtensionAPI, toolContract = checkSandburgToolContract(pi), disabledAllTools = false): SandburgStatus {
+export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandburgSetup(pi), disabledAllTools = false): SandburgStatus {
 	const mounts = parseMountInfo(readProcFile("/proc/self/mountinfo"));
 	const status = parseProcStatus(readProcFile("/proc/self/status"));
 	const uidMap = readProcFile("/proc/self/uid_map")?.trim();
@@ -272,13 +264,13 @@ export function buildSandburgStatus(pi: ExtensionAPI, toolContract = checkSandbu
 		});
 	const additionalActiveTools = getAdditionalActiveToolNames(pi);
 	const warnings = [
-		!toolContract.valid &&
+		!sandburgCheck.valid &&
 			(disabledAllTools
-				? "Sandburg tool contract is invalid, so all tools are disabled."
-				: "Sandburg tool contract is invalid."),
-		toolContract.valid && disabledAllTools && "All tools are disabled.",
+				? "Sandburg setup is invalid, so all tools are disabled."
+				: "Sandburg setup is invalid."),
+		sandburgCheck.valid && disabledAllTools && "All tools are disabled.",
 		additionalActiveTools.length > 0 &&
-			`Additional tools are active outside the sandburg contract: ${additionalActiveTools.join(", ")}`,
+			`Additional tools are active outside the sandburg core tool set: ${additionalActiveTools.join(", ")}`,
 		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
 		broadHostExposures.length > 0 && "Broad host exposure detected!",
 	].filter(Boolean) as string[];
@@ -290,9 +282,9 @@ export function buildSandburgStatus(pi: ExtensionAPI, toolContract = checkSandbu
 		for (const warning of warnings) lines.push(`- ${warning}`);
 	}
 
-	if (toolContract.violations.length > 0) {
-		lines.push("", "Sandburg tool contract violations");
-		for (const violation of toolContract.violations) lines.push(`- ${violation}`);
+	if (sandburgCheck.violations.length > 0) {
+		lines.push("", "Sandburg setup violations");
+		for (const violation of sandburgCheck.violations) lines.push(`- ${violation}`);
 	}
 
 	lines.push("", "Outer sandbox for the pi process");

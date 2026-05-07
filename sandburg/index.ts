@@ -27,9 +27,9 @@ import {
 import { registerGuardedMutationToolDefinition, registerGuardedReadToolDefinition } from "./path-policy.js";
 import {
 	buildSandburgStatus,
-	checkSandburgToolContract,
+	checkSandburgSetup,
 	getAdditionalActiveToolNames,
-	type SandburgToolContractStatus,
+	type SandburgCheckStatus,
 } from "./status.js";
 
 const SANDBOXED_BASH_DESCRIPTION =
@@ -41,10 +41,10 @@ const SANDBOXED_BASH_PROMPT_GUIDELINES = [
 ];
 
 export default async function (pi: ExtensionAPI) {
-	installSandburgHelpers();
-	await verifyPiGrepReachesRgWrapper();
+	const setupViolations = installSandburgHelpers();
+	if (setupViolations.length === 0) setupViolations.push(...(await verifyPiGrepReachesRgWrapper()));
 
-	let toolContractStatus: SandburgToolContractStatus = { valid: true, violations: [] };
+	let sandburgStatus: SandburgCheckStatus = { valid: true, violations: [] };
 	let disabledAllTools = false;
 
 	process.env.SANDBURG_ACTIVE = ACTIVE_MARKER;
@@ -106,38 +106,38 @@ export default async function (pi: ExtensionAPI) {
 		registerGuardedMutationToolDefinition(pi, editDefinition, localCwd);
 	};
 
-	const checkToolContract = (notify?: (message: string) => void) => {
-		const status = checkSandburgToolContract(pi);
+	const checkSandburg = (notify?: (message: string) => void) => {
+		const status = checkSandburgSetup(pi, setupViolations);
 		if (!status.valid) {
 			pi.setActiveTools([]);
-			toolContractStatus = status;
+			sandburgStatus = status;
 			disabledAllTools = true;
-			notify?.("Sandburg tool contract is invalid, so all tools are disabled.\nRun /sandburg for details.\n");
+			notify?.("Sandburg setup is invalid, so all tools are disabled.\nRun /sandburg for details.\n");
 			return;
 		}
-		toolContractStatus = status;
+		sandburgStatus = status;
 		disabledAllTools = false;
 	};
 
-	// This is intentionally a load/reload-time warning, not a hard contract
-	// failure and not a per-tool-call gate. Under Pi’s current same-name tool
+	// This is intentionally a load/reload-time warning, not a hard setup failure
+	// and not a per-tool-call gate. Under Pi’s current same-name tool
 	// de-duplication semantics, later-loaded extensions cannot replace
-	// sandburg’s protected tool replacements after the contract check passes.
+	// sandburg’s protected tool replacements after the setup check passes.
 	// Dynamic runtime tool registration is trusted user extension behavior. This
 	// warning is meant to catch forgotten extensions in the load path, while
 	// keeping intentionally enabled tools usable.
 	const warnAboutAdditionalActiveTools = (notify?: (message: string) => void) => {
-		if (!toolContractStatus.valid) return;
+		if (!sandburgStatus.valid) return;
 		const names = getAdditionalActiveToolNames(pi);
 		if (names.length === 0) return;
-		notify?.(`Additional tools are active outside the sandburg contract: ${names.join(", ")}. They remain enabled. Run /sandburg for details.\n`);
+		notify?.(`Additional tools are active outside the sandburg core tool set: ${names.join(", ")}. They remain enabled. Run /sandburg for details.\n`);
 	};
 
 	pi.registerCommand("sandburg", {
 		description: "Show sandburg sandbox status",
 		handler: async (_args, ctx) => {
-			checkToolContract();
-			const status = buildSandburgStatus(pi, toolContractStatus, disabledAllTools);
+			checkSandburg();
+			const status = buildSandburgStatus(pi, sandburgStatus, disabledAllTools);
 			if (ctx.hasUI) ctx.ui.notify(status.text, status.severity);
 			else console.log(status.text);
 		},
@@ -145,20 +145,20 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		registerSandburgTools(ctx.cwd);
-		checkToolContract((message) => ctx.ui.notify(message, "warning"));
+		checkSandburg((message) => ctx.ui.notify(message, "warning"));
 		warnAboutAdditionalActiveTools((message) => ctx.ui.notify(message, "warning"));
 	});
 
 	pi.on("before_agent_start", async () => {
-		if (!toolContractStatus.valid) {
+		if (!sandburgStatus.valid) {
 			pi.setActiveTools([]);
 			disabledAllTools = true;
 		}
 	});
 
 	pi.on("tool_call", async () => {
-		if (!toolContractStatus.valid) {
-			return { block: true, reason: "sandburg tool contract is invalid; all tools are disabled." };
+		if (!sandburgStatus.valid) {
+			return { block: true, reason: "sandburg setup is invalid; all tools are disabled." };
 		}
 	});
 }

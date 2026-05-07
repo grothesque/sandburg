@@ -63,8 +63,8 @@ A real ripgrep binary (`rg`) must be available *outside* Pi’s agent bin direct
 typically `~/.pi/agent/bin`.
 Sandburg needs to write a ripgrep wrapper shell script named `rg` in that directory,
 along with a second shell script named `sandburg-tool-sandbox`.
-It will warn if an `rg` downloaded by Pi is already there
-and will never overwrite files it has not written itself.
+If an `rg` downloaded by Pi is already there
+Sandburg will report a setup violation and disable tools.
 
 (These two helper scripts are recreated automatically and may be removed
 when Pi is not running.
