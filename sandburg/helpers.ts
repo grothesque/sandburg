@@ -24,10 +24,8 @@ export const AUTH_JSON_PATH = join(AGENT_DIR, "auth.json");
 export const BWRAP_PATH = join(AGENT_BIN_DIR, "sandburg-bwrap");
 export const RG_WRAPPER_PATH = join(AGENT_BIN_DIR, "rg");
 export const JITI_CACHE_DIR = "/tmp/jiti";
-export const EXTRA_RO_PATHS = (process.env.SANDBURG_RO_PATHS ?? "")
-	.split(":")
-	.filter(Boolean)
-	.map((path) => resolve(path));
+const extraRoPathsValue = process.env.SANDBURG_RO_PATHS ?? "";
+export const EXTRA_RO_PATHS = extraRoPathsValue === "" ? [] : extraRoPathsValue.split(":");
 
 const BWRAP_SCRIPT = `#!/usr/bin/env bash
 ${BWRAP_MARKER}
@@ -76,15 +74,13 @@ bwrap_args=(
 )
 
 # Extra protected paths are supplied by trusted launch configuration as a
-# colon-separated list. Each existing file or directory is rebound read-only so
-# agent-facing subprocesses cannot mutate protected Pi state through explicit
-# backing-store aliases. Nonexistent paths are ignored because there is nothing
-# to rebind; provide existing directory roots when creation should be blocked.
+# colon-separated list. Each path is rebound read-only so agent-facing
+# subprocesses cannot mutate protected Pi state through explicit backing-store
+# aliases. bwrap fails closed if a configured path is missing; invalid entries
+# are rejected by the extension's tool contract before agent tools run.
 IFS=: read -r -a protected_path_array <<< "$protected_paths"
 for path in "\${protected_path_array[@]}"; do
-    if [[ -n $path && -e $path ]]; then
-        bwrap_args+=(--ro-bind "$path" "$path")
-    fi
+    bwrap_args+=(--ro-bind "$path" "$path")
 done
 
 env_args=(

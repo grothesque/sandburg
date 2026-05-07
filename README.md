@@ -88,7 +88,7 @@ then Pi will need write permission for the latter directory.
 Sandburg’s tool sandbox would not know about this path setup,
 and the tools would therefore have write access there.
 To handle such cases, set `SANDBURG_RO_PATHS` to a colon-separated list
-of additional existing paths that Sandburg should protect from mutation
+of additional absolute existing paths that Sandburg should protect from mutation
 by the agent’s tools.
 This variable is meant for this specific use case.
 

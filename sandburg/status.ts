@@ -1,6 +1,7 @@
 // Sandburg status report generation for the /sandburg command
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { isAbsolute } from "path";
 import {
 	ACTIVE_MARKER,
 	AGENT_DIR,
@@ -194,6 +195,16 @@ function toolByName(pi: ExtensionAPI): Map<string, ToolInfo> {
 	return new Map(pi.getAllTools().map((tool) => [tool.name, tool]));
 }
 
+function getExtraRoPathViolations(): string[] {
+	return EXTRA_RO_PATHS.flatMap((path, index) => {
+		const label = `SANDBURG_RO_PATHS entry #${index + 1}`;
+		if (path === "") return [`${label} is empty.`];
+		if (!isAbsolute(path)) return [`${label} is not absolute: ${path}`];
+		if (!existsSync(path)) return [`${label} does not exist: ${path}`];
+		return [];
+	});
+}
+
 export function getAdditionalActiveToolNames(pi: ExtensionAPI): string[] {
 	const allTools = pi.getAllTools();
 	const enabledToolNames = new Set(pi.getActiveTools());
@@ -215,6 +226,7 @@ export function checkSandburgToolContract(pi: ExtensionAPI): SandburgToolContrac
 	if (!isManagedFile(RG_WRAPPER_PATH, RG_MARKER)) {
 		violations.push("rg wrapper is missing or unmanaged.");
 	}
+	violations.push(...getExtraRoPathViolations());
 
 	for (const name of SANDBURG_REDEFINED_TOOL_NAMES) {
 		const tool = tools.get(name);
