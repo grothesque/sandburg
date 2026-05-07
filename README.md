@@ -62,7 +62,7 @@ Sandburg requires `bwrap`.
 A real ripgrep binary (`rg`) must be available *outside* Pi’s agent bin directory,
 typically `~/.pi/agent/bin`.
 Sandburg needs to write a ripgrep wrapper shell script named `rg` in that directory,
-along with a second shell script named `sandburg-bwrap`.
+along with a second shell script named `sandburg-tool-sandbox`.
 It will warn if an `rg` downloaded by Pi is already there
 and will never overwrite files it has not written itself.
 

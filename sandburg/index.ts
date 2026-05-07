@@ -1,7 +1,7 @@
 /**
  * sandburg: Pi extension for sandboxing agent-facing tools
  *
- * - bash and grep subprocesses run through sandburg-bwrap with network disabled.
+ * - bash and grep subprocesses run through the tool sandbox runner with network disabled.
  * - read/write/edit are re-registered with path guards for Pi credentials/state.
  * - /sandburg reports protected tools and outer sandbox exposure signals.
  *
@@ -19,7 +19,7 @@ import {
 	ACTIVE_MARKER,
 	AGENT_DIR,
 	AUTH_JSON_PATH,
-	BWRAP_PATH,
+	TOOL_SANDBOX_RUNNER_PATH,
 	installSandburgHelpers,
 	shQuote,
 	verifyPiGrepReachesRgWrapper,
@@ -80,7 +80,7 @@ export default async function (pi: ExtensionAPI) {
 		const sandburgBashDefinition = createBashToolDefinition(localCwd, {
 			spawnHook: ({ command, cwd, env }) => {
 				return {
-					command: `exec ${shQuote(BWRAP_PATH)} /bin/bash -c ${shQuote(command)}`,
+					command: `exec ${shQuote(TOOL_SANDBOX_RUNNER_PATH)} /bin/bash -c ${shQuote(command)}`,
 					cwd,
 					env: {
 						...env,

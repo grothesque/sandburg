@@ -5,8 +5,8 @@ import { isAbsolute } from "path";
 import {
 	ACTIVE_MARKER,
 	AGENT_DIR,
-	BWRAP_MARKER,
-	BWRAP_PATH,
+	TOOL_SANDBOX_RUNNER_MARKER,
+	TOOL_SANDBOX_RUNNER_PATH,
 	EXTRA_RO_PATHS,
 	JITI_CACHE_DIR,
 	RG_MARKER,
@@ -220,8 +220,8 @@ export function checkSandburgToolContract(pi: ExtensionAPI): SandburgToolContrac
 	if (process.env.SANDBURG_ACTIVE !== ACTIVE_MARKER) {
 		violations.push("sandburg extension marker is not active.");
 	}
-	if (!isManagedFile(BWRAP_PATH, BWRAP_MARKER)) {
-		violations.push("Inner sandbox helper is missing or unmanaged.");
+	if (!isManagedFile(TOOL_SANDBOX_RUNNER_PATH, TOOL_SANDBOX_RUNNER_MARKER)) {
+		violations.push("Tool sandbox runner is missing or unmanaged.");
 	}
 	if (!isManagedFile(RG_WRAPPER_PATH, RG_MARKER)) {
 		violations.push("rg wrapper is missing or unmanaged.");
