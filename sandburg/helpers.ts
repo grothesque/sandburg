@@ -53,22 +53,14 @@ if (($# == 0)); then
     exit 2
 fi
 
-: "\${HOME:?sandburg-tool-sandbox: HOME is not set}"
-: "\${USER:?sandburg-tool-sandbox: USER is not set}"
-: "\${PATH:?sandburg-tool-sandbox: PATH is not set}"
 : "\${SANDBURG_ACTIVE:?sandburg-tool-sandbox: SANDBURG_ACTIVE is not set}"
 : "\${SANDBURG_AGENT_DIR:?sandburg-tool-sandbox: SANDBURG_AGENT_DIR is not set}"
 : "\${SANDBURG_AUTH_PATH:?sandburg-tool-sandbox: SANDBURG_AUTH_PATH is not set}"
 
-home=$HOME
-user=$USER
-logname=\${LOGNAME:-$user}
-sandbox_path=$PATH
 agent_dir=$SANDBURG_AGENT_DIR
 auth_path=$SANDBURG_AUTH_PATH
 extra_ro_paths=\${SANDBURG_RO_PATHS:-}
-term=\${TERM:-xterm-256color}
-lang=\${LANG:-C.UTF-8}
+pass_vars=\${SANDBURG_PASS_VARS:-}
 
 if [[ ! -d $agent_dir ]]; then
     echo "sandburg-tool-sandbox: Pi agent directory not found: $agent_dir" >&2
@@ -95,28 +87,79 @@ for path in "\${extra_ro_path_array[@]}"; do
     bwrap_args+=(--ro-bind "$path" "$path")
 done
 
-env_args=(
-    --clearenv
-    --setenv HOME "$home"
-    --setenv USER "$user"
-    --setenv LOGNAME "$logname"
-    --setenv SHELL /bin/sh
-    --setenv PATH "$sandbox_path"
-    --setenv TERM "$term"
-    --setenv LANG "$lang"
+env_args=(--clearenv)
+declare -A passed_env_names=()
+
+env_is_exported() {
+    local declaration
+    declaration=$(declare -p "$1" 2>/dev/null) || return 1
+    case $declaration in
+        declare\\ -*x*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+pass_env_if_set() {
+    local name=$1
+    [[ -z \${passed_env_names[$name]+x} ]] || return 0
+    passed_env_names[$name]=1
+    if env_is_exported "$name"; then
+        env_args+=(--setenv "$name" "\${!name}")
+    fi
+}
+
+pass_configured_var() {
+    local name=$1
+
+    if [[ -z $name ]]; then
+        echo "sandburg-tool-sandbox: empty variable name in SANDBURG_PASS_VARS" >&2
+        exit 2
+    fi
+
+    if [[ ! $name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "sandburg-tool-sandbox: invalid variable name in SANDBURG_PASS_VARS: $name" >&2
+        exit 2
+    fi
+
+    case $name in
+        SANDBURG_*)
+            echo "sandburg-tool-sandbox: reserved variable name in SANDBURG_PASS_VARS: $name" >&2
+            exit 2
+            ;;
+    esac
+
+    pass_env_if_set "$name"
+}
+
+for name in HOME USER LOGNAME SHELL PATH TERM LANG COLORTERM; do
+    pass_env_if_set "$name"
+done
+
+for name in "\${!LC_@}"; do
+    pass_env_if_set "$name"
+done
+
+# Trusted launch configuration may pass additional exact-name environment
+# variables. Missing listed variables are omitted, like missing default
+# variables above.
+if [[ -n $pass_vars ]]; then
+    if [[ $pass_vars == :* || $pass_vars == *: || $pass_vars == *::* ]]; then
+        echo "sandburg-tool-sandbox: empty variable name in SANDBURG_PASS_VARS" >&2
+        exit 2
+    fi
+
+    IFS=: read -r -a pass_vars_array <<< "$pass_vars"
+    for name in "\${pass_vars_array[@]}"; do
+        pass_configured_var "$name"
+    done
+fi
+
+env_args+=(
     --setenv SANDBURG_ACTIVE "$SANDBURG_ACTIVE"
     --setenv SANDBURG_TOOL_SANDBOX 1
     --setenv SANDBURG_AGENT_DIR "$agent_dir"
     --setenv SANDBURG_AUTH_PATH "$auth_path"
 )
-
-if [[ -n \${COLORTERM:-} ]]; then
-    env_args+=(--setenv COLORTERM "$COLORTERM")
-fi
-
-for name in "\${!LC_@}"; do
-    env_args+=(--setenv "$name" "\${!name}")
-done
 
 if [[ -n $extra_ro_paths ]]; then
     env_args+=(--setenv SANDBURG_RO_PATHS "$extra_ro_paths")

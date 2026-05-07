@@ -79,6 +79,16 @@ into a Pi extension directory, for example `$HOME/.pi/agent/extensions`.
 It is highly recommended to launch Pi within an outer `bwrap` sandbox.
 The recommended setup using Sandkasten is described below.
 
+### Environment variables
+
+Agent-launched tool commands run with a mostly cleared environment.
+Common shell variables such as `HOME`, `PATH`, `LANG`,
+and locale variables are forwarded if set.
+To intentionally pass additional trusted variables from the Pi process,
+set `SANDBURG_PASS_VARS` to a colon-separated exact-name allowlist.
+Entries must be non-empty shell variable names and cannot begin with `SANDBURG_`.
+Listed variables that are not exported are omitted.
+
 ### Extra read-only paths
 
 Sometimes, the outer sandbox needs to grant the Pi process write access
