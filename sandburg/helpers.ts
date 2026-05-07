@@ -4,10 +4,13 @@ import { spawnSync } from "child_process";
 import {
 	accessSync,
 	chmodSync,
+	closeSync,
 	constants,
 	existsSync,
 	mkdirSync,
+	openSync,
 	readFileSync,
+	readSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -178,12 +181,23 @@ function isExecutable(path: string): boolean {
 }
 
 function isScriptFile(path: string): boolean {
+	let fd: number | undefined;
+
 	try {
-		const real = realpathSync(path);
-		const bytes = readFileSync(real).subarray(0, 2).toString("utf-8");
-		return bytes === "#!";
+		fd = openSync(realpathSync(path), "r");
+		const bytes = Buffer.allocUnsafe(2);
+		const bytesRead = readSync(fd, bytes, 0, bytes.length, 0);
+		return bytesRead === 2 && bytes[0] === 0x23 && bytes[1] === 0x21;
 	} catch {
 		return false;
+	} finally {
+		if (fd !== undefined) {
+			try {
+				closeSync(fd);
+			} catch {
+				// Ignore close errors in this best-effort file probe.
+			}
+		}
 	}
 }
 
