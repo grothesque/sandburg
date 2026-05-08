@@ -1,5 +1,5 @@
 // Sandburg helper installers and shell wrapper generation
-import { createGrepToolDefinition, getAgentDir } from "@mariozechner/pi-coding-agent";
+import { createGrepToolDefinition, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "child_process";
 import {
 	accessSync,

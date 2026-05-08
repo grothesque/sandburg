@@ -6,7 +6,7 @@
  * extension when testing tool shadowing and load order.
  * This is a development helper, not a normally installed extension.
  */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { Type } from "typebox";
@@ -36,7 +36,7 @@ function sourceSummary(sourceInfo: ReturnType<ExtensionAPI["getAllTools"]>[numbe
 }
 
 function fakeToolRegistrationSource(names: string[]): string {
-	return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";\nimport { Type } from "typebox";\n\nconst toolNames = ${JSON.stringify(names)};\n\nexport default function (pi: ExtensionAPI) {\n\tfor (const name of toolNames) {\n\t\tpi.registerTool({\n\t\t\tname,\n\t\t\tlabel: name,\n\t\t\tdescription: "Preloaded fake " + name + " tool for Pi tool testing.",\n\t\t\tpromptSnippet: \"Fake tool registered by tooltester; returns a diagnostic text response.\",\n\t\t\tparameters: Type.Object({}, { additionalProperties: true }),\n\t\t\tasync execute() {\n\t\t\t\treturn {\n\t\t\t\t\tcontent: [{ type: \"text\", text: \"tooltester fake tool response\" }],\n\t\t\t\t\tdetails: { from: \"tooltester-preload\", tool: name },\n\t\t\t\t};\n\t\t\t},\n\t\t});\n\t}\n\n\tpi.on(\"session_start\", () => {\n\t\tpi.setActiveTools([...new Set([...pi.getActiveTools(), ...toolNames])]);\n\t});\n}\n`;
+	return `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";\nimport { Type } from "typebox";\n\nconst toolNames = ${JSON.stringify(names)};\n\nexport default function (pi: ExtensionAPI) {\n\tfor (const name of toolNames) {\n\t\tpi.registerTool({\n\t\t\tname,\n\t\t\tlabel: name,\n\t\t\tdescription: "Preloaded fake " + name + " tool for Pi tool testing.",\n\t\t\tpromptSnippet: \"Fake tool registered by tooltester; returns a diagnostic text response.\",\n\t\t\tparameters: Type.Object({}, { additionalProperties: true }),\n\t\t\tasync execute() {\n\t\t\t\treturn {\n\t\t\t\t\tcontent: [{ type: \"text\", text: \"tooltester fake tool response\" }],\n\t\t\t\t\tdetails: { from: \"tooltester-preload\", tool: name },\n\t\t\t\t};\n\t\t\t},\n\t\t});\n\t}\n\n\tpi.on(\"session_start\", () => {\n\t\tpi.setActiveTools([...new Set([...pi.getActiveTools(), ...toolNames])]);\n\t});\n}\n`;
 }
 
 export default function (pi: ExtensionAPI) {

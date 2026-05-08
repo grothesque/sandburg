@@ -1,10 +1,10 @@
 // Sandburg path guards for Pi’s read, write, and edit tools
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
 	createEditToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { lstatSync, readlinkSync, realpathSync } from "fs";
 import * as os from "os";
 import { dirname, isAbsolute, parse, relative, resolve, sep } from "path";
