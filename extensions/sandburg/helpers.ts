@@ -81,7 +81,7 @@ bwrap_args=(
 # colon-separated list. Each path is rebound read-only so agent-facing
 # subprocesses cannot mutate protected Pi state through explicit backing-store
 # aliases. bwrap fails closed if a configured path is missing; invalid entries
-# are rejected by the extension's setup check before agent tools run.
+# are rejected by the extension’s setup check before agent tools run.
 IFS=: read -r -a extra_ro_path_array <<< "$extra_ro_paths"
 for path in "\${extra_ro_path_array[@]}"; do
     bwrap_args+=(--ro-bind "$path" "$path")
@@ -194,7 +194,7 @@ probe_message=${shQuote(RG_PROBE_MESSAGE)}
 real_rg=${shQuote(realRgPath)}
 tool_sandbox_runner=${shQuote(toolSandboxRunnerPath)}
 
-# Startup self-test hook used by the extension to verify that Pi's grep tool
+# Startup self-test hook used by the extension to verify that Pi’s grep tool
 # reaches this wrapper. This intentionally writes only to stderr and exits
 # before entering the sandbox or touching the filesystem.
 if [ "\${SANDBURG_RG_WRAPPER_PROBE:-}" = "$active_marker" ]; then

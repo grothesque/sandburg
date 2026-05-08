@@ -61,8 +61,8 @@ const KNOWN_TOOL_NAME_SET = new Set([...SANDBURG_TOOL_NAMES, ...BUILTIN_DISCOVER
 //   We warn about them at load/reload and in /sandburg status.
 //
 // If Pi’s tool registration or override semantics change, re-audit this file
-// and sandburg/index.ts before relying on a startup setup check being
-// stable for the whole session.
+// and index.ts before relying on a startup setup check being stable for the
+// whole session.
 
 function readProcFile(path: string): string | undefined {
 	try {
