@@ -125,7 +125,7 @@ function applySessionEnv(agentDir, extraEnv = {}) {
 	return () => restoreEnv(savedEnv);
 }
 
-export async function runSandburgToolCall({ cwd, agentDir, toolName, args, env = {}, tools, prompt }) {
+export async function runSandburgToolCall({ cwd, agentDir, toolName, args, env = {}, tools, prompt, extraExtensionPaths }) {
 	let harness;
 	try {
 		harness = await createSandburgSdkSession({
@@ -133,6 +133,7 @@ export async function runSandburgToolCall({ cwd, agentDir, toolName, args, env =
 			agentDir,
 			env,
 			tools,
+			extraExtensionPaths,
 			responses: [assistantToolCall(toolName, args), assistantText("done")],
 		});
 		assert.deepEqual(harness.extensionsResult.errors, []);
@@ -147,7 +148,7 @@ export async function runSandburgToolCall({ cwd, agentDir, toolName, args, env =
 	}
 }
 
-export async function createSandburgSdkSession({ cwd, agentDir, responses, env = {}, tools }) {
+export async function createSandburgSdkSession({ cwd, agentDir, responses, env = {}, tools, extraExtensionPaths = [] }) {
 	if (!cwd) throw new Error("createSandburgSdkSession requires cwd");
 	if (!agentDir) throw new Error("createSandburgSdkSession requires agentDir");
 	if (!Array.isArray(responses)) throw new Error("createSandburgSdkSession requires a responses array");
@@ -172,7 +173,7 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 			cwd,
 			agentDir,
 			settingsManager,
-			additionalExtensionPaths: [sandburgExtensionPath()],
+			additionalExtensionPaths: [sandburgExtensionPath(), ...extraExtensionPaths],
 			noExtensions: true,
 			noSkills: true,
 			noPromptTemplates: true,
