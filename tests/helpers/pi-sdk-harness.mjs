@@ -168,6 +168,7 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 			settingsManager,
 		});
 		session = result.session;
+		await session.bindExtensions({});
 
 		const events = [];
 		let disposed = false;
