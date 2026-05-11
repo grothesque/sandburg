@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../..");
-const DEFAULT_PATH = "/usr/bin:/bin";
+export const DEFAULT_PATH = "/usr/bin:/bin";
 
 export function repoRoot() {
 	return REPO_ROOT;
