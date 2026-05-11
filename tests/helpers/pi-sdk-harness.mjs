@@ -123,7 +123,7 @@ function applySessionEnv(agentDir, extraEnv = {}) {
 	return () => restoreEnv(savedEnv);
 }
 
-export async function createSandburgSdkSession({ cwd, agentDir, responses, env = {} }) {
+export async function createSandburgSdkSession({ cwd, agentDir, responses, env = {}, tools }) {
 	if (!cwd) throw new Error("createSandburgSdkSession requires cwd");
 	if (!agentDir) throw new Error("createSandburgSdkSession requires agentDir");
 	if (!Array.isArray(responses)) throw new Error("createSandburgSdkSession requires a responses array");
@@ -166,6 +166,7 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 			resourceLoader: loader,
 			sessionManager: SessionManager.inMemory(),
 			settingsManager,
+			...(tools ? { tools } : {}),
 		});
 		session = result.session;
 		await session.bindExtensions({});
