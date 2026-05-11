@@ -1,15 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { findToolEnd, parseJsonLines, toolResultText } from "./helpers/events.mjs";
 import {
 	bwrapUsable,
-	DEFAULT_PATH,
 	mkTestDir,
 	piBinPath,
+	piSubprocessEnv,
 	repoRoot,
 	rmTestDir,
 	sandburgExtensionPath,
@@ -71,14 +71,15 @@ test("Pi CLI JSON mode loads Sandburg and runs a scripted bash tool call", async
 			],
 			{
 				cwd,
-				env: {
-					...process.env,
-					PATH: `${DEFAULT_PATH}:${dirname(piBin)}`,
-					PI_CODING_AGENT_DIR: agentDir,
-					PI_OFFLINE: "1",
-					SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
-					SANDBURG_TEST_PROVIDER_SCRIPT: JSON.stringify(script),
-				},
+				env: piSubprocessEnv({
+					piBin,
+					agentDir,
+					home: cwd,
+					extra: {
+						SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
+						SANDBURG_TEST_PROVIDER_SCRIPT: JSON.stringify(script),
+					},
+				}),
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],
 				timeout: 30000,

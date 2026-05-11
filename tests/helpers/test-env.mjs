@@ -37,6 +37,26 @@ export function piBinPath() {
 	return undefined;
 }
 
+export function piSubprocessEnv({ piBin, agentDir, home, extra = {} } = {}) {
+	if (!piBin) throw new Error("piSubprocessEnv requires piBin");
+	if (!agentDir) throw new Error("piSubprocessEnv requires agentDir");
+
+	const env = {
+		PATH: `${DEFAULT_PATH}${delimiter}${dirname(piBin)}`,
+		HOME: home ?? agentDir,
+		LANG: "C.UTF-8",
+		PI_CODING_AGENT_DIR: agentDir,
+		PI_OFFLINE: "1",
+	};
+
+	// Pi normally finds its package assets from the executable path. Preserve this
+	// explicit override for package-manager layouts that need it, without passing
+	// the user’s entire environment into subprocess tests.
+	if (process.env.PI_PACKAGE_DIR) env.PI_PACKAGE_DIR = process.env.PI_PACKAGE_DIR;
+
+	return { ...env, ...extra };
+}
+
 export function bwrapUsable() {
 	const result = spawnSync(
 		"bwrap",
@@ -72,17 +92,6 @@ export async function mkTestDir(name = "test") {
 
 export async function rmTestDir(path) {
 	await rm(path, { recursive: true, force: true });
-}
-
-export async function makeTestEnv(extra = {}) {
-	const agentDir = extra.PI_CODING_AGENT_DIR ?? (await mkTestDir("agent"));
-	return {
-		...process.env,
-		PATH: DEFAULT_PATH,
-		PI_CODING_AGENT_DIR: agentDir,
-		PI_OFFLINE: "1",
-		...extra,
-	};
 }
 
 export async function assertFileExists(path) {

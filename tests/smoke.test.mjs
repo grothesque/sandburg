@@ -1,12 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import assert from "node:assert/strict";
-
 import {
 	assertFileExists,
 	assertFileNotExists,
-	makeTestEnv,
 	mkTestDir,
 	repoRoot,
 	rmTestDir,
@@ -18,7 +15,7 @@ test("test helpers expose repository paths", async () => {
 	await assertFileExists(join(sandburgExtensionPath(), "index.ts"));
 });
 
-test("test helpers create isolated temp dirs and env", async () => {
+test("test helpers create isolated temp dirs", async () => {
 	const dir = await mkTestDir("smoke");
 	try {
 		await assertFileExists(dir);
@@ -28,14 +25,6 @@ test("test helpers create isolated temp dirs and env", async () => {
 		await writeFile(present, "ok");
 		await assertFileExists(present);
 		await assertFileNotExists(absent);
-
-		const customAgentDir = join(dir, "agent");
-		await mkdir(customAgentDir);
-		const env = await makeTestEnv({ PI_CODING_AGENT_DIR: customAgentDir, EXTRA_TEST_VAR: "yes" });
-		assert.equal(env.PI_CODING_AGENT_DIR, customAgentDir);
-		assert.equal(env.PI_OFFLINE, "1");
-		assert.equal(env.PATH, "/usr/bin:/bin");
-		assert.equal(env.EXTRA_TEST_VAR, "yes");
 	} finally {
 		await rmTestDir(dir);
 	}

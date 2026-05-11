@@ -1,14 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { parseJsonLines } from "./helpers/events.mjs";
 import {
-	DEFAULT_PATH,
 	mkTestDir,
 	piBinPath,
+	piSubprocessEnv,
 	repoRoot,
 	rmTestDir,
 	sandburgExtensionPath,
@@ -57,14 +57,15 @@ test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 			],
 			{
 				cwd,
-				env: {
-					...process.env,
-					PATH: `${DEFAULT_PATH}:${dirname(piBin)}`,
-					PI_CODING_AGENT_DIR: agentDir,
-					PI_OFFLINE: "1",
-					SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
-					SANDBURG_TEST_PROVIDER_SCRIPT: "[]",
-				},
+				env: piSubprocessEnv({
+					piBin,
+					agentDir,
+					home: cwd,
+					extra: {
+						SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
+						SANDBURG_TEST_PROVIDER_SCRIPT: "[]",
+					},
+				}),
 				input,
 				encoding: "utf8",
 				stdio: ["pipe", "pipe", "pipe"],
