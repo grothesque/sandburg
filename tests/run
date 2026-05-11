@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo_root"
+sh -n tests/run
+node --test --test-concurrency=1 tests/*.test.mjs
