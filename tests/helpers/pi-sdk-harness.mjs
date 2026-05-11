@@ -1,7 +1,9 @@
 import { existsSync, realpathSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import assert from "node:assert/strict";
 
+import { findToolEnd, lastAssistantText, toolResultText } from "./events.mjs";
 import { DEFAULT_PATH, sandburgExtensionPath } from "./test-env.mjs";
 
 const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
@@ -121,6 +123,28 @@ function applySessionEnv(agentDir, extraEnv = {}) {
 	Object.assign(process.env, extraEnv);
 
 	return () => restoreEnv(savedEnv);
+}
+
+export async function runSandburgToolCall({ cwd, agentDir, toolName, args, env = {}, tools, prompt }) {
+	let harness;
+	try {
+		harness = await createSandburgSdkSession({
+			cwd,
+			agentDir,
+			env,
+			tools,
+			responses: [assistantToolCall(toolName, args), assistantText("done")],
+		});
+		assert.deepEqual(harness.extensionsResult.errors, []);
+
+		const events = await harness.prompt(prompt ?? `run ${toolName}`);
+		const toolEnd = findToolEnd(events, toolName);
+		assert.ok(toolEnd, `expected a ${toolName} tool_execution_end event`);
+		assert.equal(lastAssistantText(events), "done");
+		return { events, toolEnd, resultText: toolResultText(toolEnd) };
+	} finally {
+		harness?.dispose();
+	}
 }
 
 export async function createSandburgSdkSession({ cwd, agentDir, responses, env = {}, tools }) {

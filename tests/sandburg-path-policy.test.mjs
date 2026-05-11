@@ -3,9 +3,8 @@ import { join } from "node:path";
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { findToolEnd, lastAssistantText, toolResultText } from "./helpers/events.mjs";
 import { assertFileNotExists, mkTestDir, rmTestDir } from "./helpers/test-env.mjs";
-import { assistantText, assistantToolCall, createSandburgSdkSession } from "./helpers/pi-sdk-harness.mjs";
+import { runSandburgToolCall } from "./helpers/pi-sdk-harness.mjs";
 
 let dir;
 let cwd;
@@ -24,33 +23,16 @@ after(async () => {
 });
 
 async function runToolCall(toolName, args) {
-	let harness;
-	try {
-		harness = await createSandburgSdkSession({
-			cwd,
-			agentDir,
-			responses: [assistantToolCall(toolName, args), assistantText("done")],
-		});
-		assert.deepEqual(harness.extensionsResult.errors, []);
-
-		const events = await harness.prompt(`run ${toolName}`);
-		const toolEnd = findToolEnd(events, toolName);
-		assert.ok(toolEnd, `expected a ${toolName} tool_execution_end event`);
-		assert.equal(lastAssistantText(events), "done");
-		return toolEnd;
-	} finally {
-		harness?.dispose();
-	}
+	return runSandburgToolCall({ cwd, agentDir, toolName, args });
 }
 
 test("Sandburg read denies Pi credentials", async () => {
 	const authPath = join(agentDir, "auth.json");
 	await writeFile(authPath, "sensitive credentials", "utf8");
 
-	const readEnd = await runToolCall("read", { path: authPath });
-	const resultText = toolResultText(readEnd);
+	const { toolEnd, resultText } = await runToolCall("read", { path: authPath });
 
-	assert.equal(readEnd.isError, true);
+	assert.equal(toolEnd.isError, true);
 	assert.match(resultText, /Access denied/);
 	assert.match(resultText, /protected Pi credential\/cache path/);
 });
@@ -58,13 +40,12 @@ test("Sandburg read denies Pi credentials", async () => {
 test("Sandburg write denies Pi agent directory", async () => {
 	const blockedPath = join(agentDir, "blocked-write.txt");
 
-	const writeEnd = await runToolCall("write", {
+	const { toolEnd, resultText } = await runToolCall("write", {
 		path: blockedPath,
 		content: "should not be written",
 	});
-	const resultText = toolResultText(writeEnd);
 
-	assert.equal(writeEnd.isError, true);
+	assert.equal(toolEnd.isError, true);
 	assert.match(resultText, /Access denied/);
 	assert.match(resultText, /protected Pi state\/cache path/);
 	await assertFileNotExists(blockedPath);
@@ -73,11 +54,11 @@ test("Sandburg write denies Pi agent directory", async () => {
 test("Sandburg allows project writes", async () => {
 	const allowedPath = join(cwd, "allowed-write.txt");
 
-	const writeEnd = await runToolCall("write", {
+	const { toolEnd } = await runToolCall("write", {
 		path: "allowed-write.txt",
 		content: "allowed project content",
 	});
 
-	assert.equal(writeEnd.isError, false);
+	assert.equal(toolEnd.isError, false);
 	assert.equal(await readFile(allowedPath, "utf8"), "allowed project content");
 });
