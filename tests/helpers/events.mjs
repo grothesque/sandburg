@@ -1,3 +1,10 @@
+export function parseJsonLines(output) {
+	return output
+		.split("\n")
+		.filter((line) => line.trim())
+		.map((line) => JSON.parse(line));
+}
+
 export function eventsOfType(events, type) {
 	return events.filter((event) => event.type === type);
 }

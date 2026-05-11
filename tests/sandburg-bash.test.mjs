@@ -1,37 +1,11 @@
-import { spawnSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { eventsOfType, findToolEnd, lastAssistantText, toolResultText } from "./helpers/events.mjs";
-import { DEFAULT_PATH, mkTestDir, rmTestDir } from "./helpers/test-env.mjs";
+import { bwrapUsable, mkTestDir, rmTestDir } from "./helpers/test-env.mjs";
 import { assistantText, assistantToolCall, createSandburgSdkSession } from "./helpers/pi-sdk-harness.mjs";
-
-function bwrapUsable() {
-	const result = spawnSync(
-		"bwrap",
-		[
-			"--unshare-all",
-			"--die-with-parent",
-			"--new-session",
-			"--ro-bind",
-			"/",
-			"/",
-			"--dev",
-			"/dev",
-			"--proc",
-			"/proc",
-			"/bin/true",
-		],
-		{
-			env: { PATH: DEFAULT_PATH },
-			stdio: "ignore",
-			timeout: 5000,
-		},
-	);
-	return result.status === 0;
-}
 
 test("Sandburg bash tool runs inside the tool sandbox", async (t) => {
 	if (!bwrapUsable()) {

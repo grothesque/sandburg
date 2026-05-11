@@ -1,7 +1,8 @@
 import { access, mkdtemp, rm } from "node:fs/promises";
-import { constants } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { accessSync, constants } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -14,6 +15,51 @@ export function repoRoot() {
 
 export function sandburgExtensionPath() {
 	return join(REPO_ROOT, "extensions", "sandburg");
+}
+
+function executablePath(path) {
+	try {
+		accessSync(path, constants.X_OK);
+		return path;
+	} catch {
+		return undefined;
+	}
+}
+
+export function piBinPath() {
+	if (process.env.PI_BIN) return executablePath(process.env.PI_BIN);
+
+	for (const dir of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
+		const candidate = executablePath(join(dir, "pi"));
+		if (candidate) return candidate;
+	}
+
+	return undefined;
+}
+
+export function bwrapUsable() {
+	const result = spawnSync(
+		"bwrap",
+		[
+			"--unshare-all",
+			"--die-with-parent",
+			"--new-session",
+			"--ro-bind",
+			"/",
+			"/",
+			"--dev",
+			"/dev",
+			"--proc",
+			"/proc",
+			"/bin/true",
+		],
+		{
+			env: { PATH: DEFAULT_PATH },
+			stdio: "ignore",
+			timeout: 5000,
+		},
+	);
+	return result.status === 0;
 }
 
 function safeName(name) {
