@@ -1,3 +1,5 @@
+// Managed helper installation tests
+
 import { spawnSync } from "node:child_process";
 import { constants, realpathSync } from "node:fs";
 import { access, mkdir, readFile } from "node:fs/promises";

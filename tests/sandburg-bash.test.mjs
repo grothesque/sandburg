@@ -1,3 +1,5 @@
+// Bash sandbox marker and credential masking tests
+
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";

@@ -1,3 +1,5 @@
+// Test environment helpers and hermetic subprocess setup
+
 import { access, mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";

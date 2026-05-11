@@ -1,3 +1,5 @@
+// Optional Sandkasten outer-sandbox smoke test
+
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { mkdir } from "node:fs/promises";

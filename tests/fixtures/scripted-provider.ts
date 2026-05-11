@@ -1,3 +1,5 @@
+// Scripted Pi provider for deterministic CLI/RPC tests
+
 import type {
 	AssistantMessage,
 	AssistantMessageEventStream,

@@ -1,3 +1,5 @@
+// SDK/faux-provider harness smoke test
+
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";

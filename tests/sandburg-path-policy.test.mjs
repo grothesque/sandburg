@@ -1,3 +1,5 @@
+// Basic protected-path policy tests
+
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test, { after, before } from "node:test";

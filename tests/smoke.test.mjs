@@ -1,3 +1,5 @@
+// Helper sanity checks
+
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";

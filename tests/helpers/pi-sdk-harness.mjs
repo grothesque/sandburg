@@ -1,3 +1,5 @@
+// Pi SDK/faux-provider harness for Sandburg tests
+
 import { existsSync, realpathSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";

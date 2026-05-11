@@ -1,3 +1,5 @@
+// Event filtering and result-text helpers
+
 export function parseJsonLines(output) {
 	return output
 		.split("\n")

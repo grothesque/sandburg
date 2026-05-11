@@ -1,3 +1,5 @@
+// Symlinks and SANDBURG_RO_PATHS tests
+
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test, { after, before } from "node:test";
