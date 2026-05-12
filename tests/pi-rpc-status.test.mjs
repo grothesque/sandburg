@@ -14,6 +14,21 @@ import {
 	sandburgExtensionPath,
 } from "./helpers/test-env.mjs";
 
+function assertPiRpcSucceeded(result) {
+	assert.equal(
+		result.status,
+		0,
+		`pi exited with status ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+	);
+	assert.doesNotMatch(result.stderr, /extension load|failed to load|cannot load/i);
+}
+
+function rpcResponse(messages, id) {
+	const response = messages.find((message) => message.type === "response" && message.id === id);
+	assert.ok(response, `expected ${id} response`);
+	return response;
+}
+
 test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 	const piBin = piBinPath();
 	if (!piBin) {
@@ -73,18 +88,10 @@ test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 			},
 		);
 
-		assert.equal(
-			result.status,
-			0,
-			`pi exited with status ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
-		);
-		assert.doesNotMatch(result.stderr, /extension load|failed to load|cannot load/i);
+		assertPiRpcSucceeded(result);
 
 		const messages = parseJsonLines(result.stdout);
-		const commandsResponse = messages.find(
-			(message) => message.type === "response" && message.id === "commands",
-		);
-		assert.ok(commandsResponse, "expected get_commands response");
+		const commandsResponse = rpcResponse(messages, "commands");
 		assert.equal(commandsResponse.success, true);
 		assert.ok(
 			commandsResponse.data.commands.some(
@@ -93,10 +100,7 @@ test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 			"expected Sandburg slash command to be registered",
 		);
 
-		const promptResponse = messages.find(
-			(message) => message.type === "response" && message.id === "sandburg-status",
-		);
-		assert.ok(promptResponse, "expected /sandburg prompt response");
+		const promptResponse = rpcResponse(messages, "sandburg-status");
 		assert.equal(promptResponse.success, true);
 
 		const statusNotify = messages.find(
@@ -107,6 +111,88 @@ test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 		assert.match(statusNotify.message, /Agent tool restrictions/);
 		assert.match(statusNotify.message, /network disabled/);
 		assert.doesNotMatch(statusNotify.message, /Additional tools are active/);
+	} finally {
+		await rmTestDir(dir);
+	}
+});
+
+test("Pi RPC Sandburg status reports runtime-added active tools", async (t) => {
+	const piBin = piBinPath();
+	if (!piBin) {
+		t.skip("Pi CLI not found; set PI_BIN or put pi on PATH");
+		return;
+	}
+
+	const dir = await mkTestDir("pi-rpc-status-runtime-tool");
+	try {
+		const cwd = join(dir, "project");
+		const agentDir = join(dir, "agent");
+		const runtimeToolName = "runtime_extra_probe";
+		await mkdir(cwd, { recursive: true });
+		await mkdir(agentDir, { recursive: true });
+
+		const input = [
+			{ id: "sandburg-status-before", type: "prompt", message: "/sandburg" },
+			{ id: "add-runtime-tool", type: "prompt", message: `/tooltester-add ${runtimeToolName}` },
+			{ id: "sandburg-status-after", type: "prompt", message: "/sandburg" },
+		]
+			.map((command) => JSON.stringify(command))
+			.join("\n") + "\n";
+
+		const result = spawnSync(
+			piBin,
+			[
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"--no-skills",
+				"--no-prompt-templates",
+				"--no-themes",
+				"--no-context-files",
+				"-e",
+				join(repoRoot(), "tests", "fixtures", "scripted-provider.ts"),
+				"-e",
+				sandburgExtensionPath(),
+				"-e",
+				join(repoRoot(), "dev-extensions", "tooltester.ts"),
+				"--provider",
+				"sandburg-test",
+				"--model",
+				"scripted",
+			],
+			{
+				cwd,
+				env: piSubprocessEnv({
+					piBin,
+					agentDir,
+					home: cwd,
+					extra: {
+						SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
+						SANDBURG_TEST_PROVIDER_SCRIPT: "[]",
+					},
+				}),
+				input,
+				encoding: "utf8",
+				stdio: ["pipe", "pipe", "pipe"],
+				timeout: 30000,
+			},
+		);
+
+		assertPiRpcSucceeded(result);
+
+		const messages = parseJsonLines(result.stdout);
+		assert.equal(rpcResponse(messages, "sandburg-status-before").success, true);
+		assert.equal(rpcResponse(messages, "add-runtime-tool").success, true);
+		assert.equal(rpcResponse(messages, "sandburg-status-after").success, true);
+
+		const statusNotifications = messages.filter(
+			(message) => message.type === "extension_ui_request" && message.method === "notify"
+				&& message.message.includes("Agent tool restrictions"),
+		);
+		assert.equal(statusNotifications.length, 2);
+		assert.doesNotMatch(statusNotifications[0].message, new RegExp(runtimeToolName));
+		assert.match(statusNotifications[1].message, new RegExp(runtimeToolName));
 	} finally {
 		await rmTestDir(dir);
 	}
