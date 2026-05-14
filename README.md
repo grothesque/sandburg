@@ -105,6 +105,19 @@ of additional absolute existing paths that Sandburg should protect from mutation
 by the agent’s tools.
 This variable is meant for this specific use case.
 
+### Nested Pi sessions
+
+When Sandburg is loaded in a top-level Pi process,
+it also tries to load itself into ordinary nested Pi sessions created by trusted extensions.
+This covers child Pi processes launched as `pi`.
+It is best-effort compatibility for non-malicious extensions,
+not a boundary against malicious extension code running in the same Pi process.
+
+Nested-session protection is best-effort.
+It covers common child Pi sessions,
+but some custom extension setups may need separate review.
+Check `/sandburg` if nested-session behavior matters for your workflow.
+
 ## Recommended Sandkasten + Sandburg setup
 
 Consult [Sandkasten documentation](https://github.com/grothesque/sandkasten#readme)
@@ -211,15 +224,17 @@ In addition, Sandburg restricts the built-in tools in the following way:
 - `ls` and `find` do not need to be reimplemented since they neither read files nor access the network.
   Sandburg verifies that they remain Pi’s ordinary built-in tools.
 
+For child Pi sessions,
+Sandburg also installs best-effort propagation hooks as described above.
 On each reload, Sandburg ensures that this tool contract is valid.
 If it is not, it disables all tools and warns the user.
 
-Caveat: Since Sandburg installs its managed `rg` wrapper for use by Pi’s built-in grep tool,
-a user command such as `! rg ...` will typically resolve to that wrapper
-and run ripgrep inside Sandburg’s tool sandbox.
-This mainly affects searches of Sandburg-protected paths such as Pi agent state.
-To run ripgrep exactly as an unrestricted user command, invoke the real binary directly,
-for example `/usr/bin/rg`, adjusted for your system.
+Note: Sandburg does not intercept Pi user bash commands (`!` and `!!`),
+but `! rg ...` and `! pi ...` will typically use Sandburg’s managed wrappers.
+For `! pi ...`, this normally helps by propagating Sandburg into the child Pi.
+To bypass these wrappers intentionally,
+invoke the real binary directly,
+for example `/usr/bin/rg` or the real Pi path for your system.
 
 ## Threat model and limitations
 

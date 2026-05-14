@@ -1,8 +1,13 @@
 // Process-global Sandburg runtime state and propagation configuration
-import { existsSync, realpathSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
+import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 export const SANDBURG_DISABLE_PROPAGATION_ENV = "SANDBURG_DISABLE_PROPAGATION";
+export const SANDBURG_REAL_PI_COMMAND_ENV = "SANDBURG_REAL_PI_COMMAND";
+export const SANDBURG_REAL_PI_ARGS_JSON_ENV = "SANDBURG_REAL_PI_ARGS_JSON";
+export const SANDBURG_EXTENSION_PATH_ENV = "SANDBURG_EXTENSION_PATH";
+export const SANDBURG_PROPAGATED_CHILD_ENV = "SANDBURG_PROPAGATED_CHILD";
 
 export type PropagationDisableToken = "pi-wrapper" | "sdk" | "argv1" | "all";
 export type PropagationMechanism = Exclude<PropagationDisableToken, "all">;
@@ -10,6 +15,19 @@ export type PropagationMechanism = Exclude<PropagationDisableToken, "all">;
 export type RealPiInvocation = {
 	command: string;
 	argsPrefix: string[];
+};
+
+type RealPiInvocationCapture =
+	| { status: "captured"; invocation: RealPiInvocation }
+	| { status: "unavailable"; reason: string };
+
+export type PiWrapperPropagationState = {
+	status: "not-started" | "installed" | "disabled" | "unavailable";
+	path?: string;
+	violations: string[];
+	pathUpdated: boolean;
+	firstPiOnPath?: string;
+	firstPiOnPathManaged?: boolean;
 };
 
 type EnvVarOwnership = {
@@ -32,7 +50,9 @@ export type SandburgRuntimeState = {
 	version: 1;
 	resolvedSandburgExtensionPath?: string;
 	realPiInvocation?: RealPiInvocation;
+	realPiInvocationUnavailableReason?: string;
 	propagationDisable: PropagationDisableState;
+	piWrapperPropagation: PiWrapperPropagationState;
 	envVars: Map<string, EnvVarOwnership>;
 };
 
@@ -44,10 +64,15 @@ function createDefaultDisableState(): PropagationDisableState {
 	return { tokens: new Set(), disabled: new Set(), unknownTokens: [] };
 }
 
+function createPiWrapperPropagationState(): PiWrapperPropagationState {
+	return { status: "not-started", violations: [], pathUpdated: false };
+}
+
 function createRuntimeState(): SandburgRuntimeState {
 	return {
 		version: 1,
 		propagationDisable: createDefaultDisableState(),
+		piWrapperPropagation: createPiWrapperPropagationState(),
 		envVars: new Map(),
 	};
 }
@@ -74,11 +99,42 @@ function extensionPathFromImportMetaUrl(importMetaUrl: string): string {
 	}
 }
 
-function captureRealPiInvocation(): RealPiInvocation {
+function readPackageNameForCli(cliPath: string): string | undefined {
+	try {
+		const packageJsonPath = join(dirname(dirname(cliPath)), "package.json");
+		const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { name?: unknown };
+		return typeof packageJson.name === "string" ? packageJson.name : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function captureRealPiInvocation(): RealPiInvocationCapture {
+	if (process.env.PI_CODING_AGENT !== "true") {
+		return { status: "unavailable", reason: "PI_CODING_AGENT=true is not set" };
+	}
+
 	const argv1 = process.argv[1];
+	if (!argv1) {
+		return { status: "unavailable", reason: "process.argv[1] is not set" };
+	}
+
+	const resolvedArgv1 = realpathIfPossible(argv1);
+	if (!resolvedArgv1.replace(/\\/g, "/").endsWith("/dist/cli.js")) {
+		return { status: "unavailable", reason: `process.argv[1] is not Pi's dist/cli.js: ${resolvedArgv1}` };
+	}
+
+	const packageName = readPackageNameForCli(resolvedArgv1);
+	if (packageName !== "@earendil-works/pi-coding-agent") {
+		return { status: "unavailable", reason: `process.argv[1] is not from @earendil-works/pi-coding-agent: ${resolvedArgv1}` };
+	}
+
 	return {
-		command: process.execPath,
-		argsPrefix: argv1 ? [realpathIfPossible(argv1)] : [],
+		status: "captured",
+		invocation: {
+			command: process.execPath,
+			argsPrefix: [resolvedArgv1],
+		},
 	};
 }
 
@@ -110,7 +166,14 @@ export function parsePropagationDisableTokens(value: string | undefined): Propag
 export function initializeSandburgRuntime(extensionImportMetaUrl: string): SandburgRuntimeState {
 	const state = getSandburgRuntimeState();
 	state.resolvedSandburgExtensionPath ??= extensionPathFromImportMetaUrl(extensionImportMetaUrl);
-	state.realPiInvocation ??= captureRealPiInvocation();
+	const realPiCapture = captureRealPiInvocation();
+	if (realPiCapture.status === "captured") {
+		state.realPiInvocation = realPiCapture.invocation;
+		delete state.realPiInvocationUnavailableReason;
+	} else {
+		delete state.realPiInvocation;
+		state.realPiInvocationUnavailableReason = realPiCapture.reason;
+	}
 	state.propagationDisable = parsePropagationDisableTokens(process.env[SANDBURG_DISABLE_PROPAGATION_ENV]);
 	return state;
 }
@@ -169,8 +232,12 @@ export function claimSandburgProcessEnv(values: Record<string, string>): EnvOwne
 	};
 }
 
-export function describeRealPiInvocation(invocation: RealPiInvocation | undefined): string {
-	if (!invocation) return "(not captured)";
+export function setPiWrapperPropagationState(update: PiWrapperPropagationState) {
+	getSandburgRuntimeState().piWrapperPropagation = update;
+}
+
+export function describeRealPiInvocation(invocation: RealPiInvocation | undefined, unavailableReason?: string): string {
+	if (!invocation) return unavailableReason ? `(not captured: ${unavailableReason})` : "(not captured)";
 	return [invocation.command, ...invocation.argsPrefix].join(" ");
 }
 

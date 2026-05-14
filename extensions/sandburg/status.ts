@@ -271,6 +271,7 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 	const runtimeState = getSandburgRuntimeState();
 	const unknownDisableTokens = runtimeState.propagationDisable.unknownTokens;
 	const disabledPropagation = [...runtimeState.propagationDisable.disabled].sort();
+	const piWrapper = runtimeState.piWrapperPropagation;
 	const warnings = [
 		!sandburgCheck.valid &&
 			(toolsDisabledUntilReload
@@ -281,6 +282,8 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 			`Additional tools are active outside the sandburg core tool set: ${additionalActiveTools.join(", ")}`,
 		unknownDisableTokens.length > 0 &&
 			`Unknown ${SANDBURG_DISABLE_PROPAGATION_ENV} token(s): ${unknownDisableTokens.join(", ")}`,
+		piWrapper.status === "unavailable" &&
+			`Nested Pi wrapper propagation is unavailable: ${piWrapper.violations.join("; ")}`,
 		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
 		broadHostExposures.length > 0 && "Broad host exposure detected!",
 	].filter(Boolean) as string[];
@@ -317,9 +320,12 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 
 	lines.push(
 		"",
-		"Sandburg process state",
-		`- propagated extension path: ${runtimeState.resolvedSandburgExtensionPath ?? "(not initialized)"}`,
-		`- real Pi invocation: ${describeRealPiInvocation(runtimeState.realPiInvocation)}`,
+		"Nested Pi propagation",
+		`- managed pi wrapper: ${piWrapper.status}${piWrapper.path ? ` (${piWrapper.path})` : ""}`,
+		`- process PATH updated: ${piWrapper.pathUpdated ? "yes" : "no"}`,
+		`- first pi on PATH: ${piWrapper.firstPiOnPath ?? "(not found)"}${piWrapper.firstPiOnPath ? (piWrapper.firstPiOnPathManaged ? " (Sandburg-managed)" : " (not Sandburg-managed)") : ""}`,
+		`- real Pi invocation: ${describeRealPiInvocation(runtimeState.realPiInvocation, runtimeState.realPiInvocationUnavailableReason)}`,
+		`- propagated Sandburg extension: ${runtimeState.resolvedSandburgExtensionPath ?? "(not initialized)"}`,
 		`- propagation disabled: ${disabledPropagation.length > 0 ? disabledPropagation.join(", ") : "(none)"}`,
 	);
 

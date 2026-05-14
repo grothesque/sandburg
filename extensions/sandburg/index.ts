@@ -17,10 +17,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
 	ACTIVE_MARKER,
+	AGENT_BIN_DIR,
 	AGENT_DIR,
 	AUTH_JSON_PATH,
 	TOOL_SANDBOX_RUNNER_PATH,
+	ensurePathEntryFirst,
+	findFirstPiOnPath,
 	installSandburgHelpers,
+	installSandburgPiWrapper,
+	isSandburgManagedPiWrapper,
 	shQuote,
 	verifyPiGrepReachesRgWrapper,
 } from "./helpers.js";
@@ -29,7 +34,15 @@ import {
 	registerGuardedReadToolDefinition,
 	registerGuardedWriteToolDefinition,
 } from "./path-policy.js";
-import { claimSandburgProcessEnv, initializeSandburgRuntime } from "./runtime-state.js";
+import {
+	SANDBURG_EXTENSION_PATH_ENV,
+	SANDBURG_REAL_PI_ARGS_JSON_ENV,
+	SANDBURG_REAL_PI_COMMAND_ENV,
+	claimSandburgProcessEnv,
+	initializeSandburgRuntime,
+	setPiWrapperPropagationState,
+	type SandburgRuntimeState,
+} from "./runtime-state.js";
 import {
 	buildSandburgStatus,
 	checkSandburgSetup,
@@ -45,16 +58,84 @@ const SANDBOXED_BASH_PROMPT_GUIDELINES = [
 	"This deliberate network blocking should never make you work around recommended workflows. Instead, ask the user to run any needed command and say whether you need to see the output. For example, ask the user to run `cargo add` instead of guessing the appropriate version of the dependency and manually adding it to `Cargo.toml`.",
 ];
 
+function setPiWrapperNotPropagating(status: "disabled" | "unavailable", violations: string[]) {
+	const firstPiOnPath = findFirstPiOnPath();
+	setPiWrapperPropagationState({
+		status,
+		path: undefined,
+		violations,
+		pathUpdated: false,
+		firstPiOnPath,
+		firstPiOnPathManaged: isSandburgManagedPiWrapper(firstPiOnPath),
+	});
+}
+
+function setupPiWrapperPropagation(runtimeState: SandburgRuntimeState): Record<string, string> {
+	if (runtimeState.propagationDisable.disabled.has("pi-wrapper")) {
+		setPiWrapperNotPropagating("disabled", []);
+		return {};
+	}
+
+	if (!runtimeState.realPiInvocation) {
+		setPiWrapperNotPropagating("unavailable", [runtimeState.realPiInvocationUnavailableReason ?? "valid real Pi CLI invocation was not captured"]);
+		return {};
+	}
+
+	if (!runtimeState.resolvedSandburgExtensionPath) {
+		setPiWrapperNotPropagating("unavailable", ["resolved Sandburg extension path was not captured"]);
+		return {};
+	}
+
+	const installResult = installSandburgPiWrapper();
+	if (installResult.status !== "installed") {
+		const firstPiOnPath = findFirstPiOnPath();
+		setPiWrapperPropagationState({
+			status: "unavailable",
+			path: installResult.path,
+			violations: installResult.violations,
+			pathUpdated: false,
+			firstPiOnPath,
+			firstPiOnPathManaged: isSandburgManagedPiWrapper(firstPiOnPath),
+		});
+		return {};
+	}
+
+	// Pi's built-in bash tool uses getShellEnv(), which includes the agent bin
+	// directory for that tool subprocess. That does not mutate process.env.PATH,
+	// so trusted extensions that spawn("pi", ..., { env: process.env }) would not
+	// necessarily find Sandburg's wrapper. Put the managed wrapper directory first
+	// in the inherited process environment for child-Pi propagation.
+	const nextPath = ensurePathEntryFirst(process.env.PATH, AGENT_BIN_DIR);
+	const firstPiOnPath = findFirstPiOnPath(nextPath.value);
+	setPiWrapperPropagationState({
+		status: "installed",
+		path: installResult.path,
+		violations: [],
+		pathUpdated: nextPath.updated,
+		firstPiOnPath,
+		firstPiOnPathManaged: isSandburgManagedPiWrapper(firstPiOnPath),
+	});
+
+	return {
+		PATH: nextPath.value,
+		[SANDBURG_REAL_PI_COMMAND_ENV]: runtimeState.realPiInvocation.command,
+		[SANDBURG_REAL_PI_ARGS_JSON_ENV]: JSON.stringify(runtimeState.realPiInvocation.argsPrefix),
+		[SANDBURG_EXTENSION_PATH_ENV]: runtimeState.resolvedSandburgExtensionPath,
+	};
+}
+
 export default async function (pi: ExtensionAPI) {
-	initializeSandburgRuntime(import.meta.url);
+	const runtimeState = initializeSandburgRuntime(import.meta.url);
+
+	const setupViolations = installSandburgHelpers();
+	if (setupViolations.length === 0) setupViolations.push(...(await verifyPiGrepReachesRgWrapper()));
+
 	const envHandle = claimSandburgProcessEnv({
 		SANDBURG_ACTIVE: ACTIVE_MARKER,
 		SANDBURG_AGENT_DIR: AGENT_DIR,
 		SANDBURG_AUTH_PATH: AUTH_JSON_PATH,
+		...setupPiWrapperPropagation(runtimeState),
 	});
-
-	const setupViolations = installSandburgHelpers();
-	if (setupViolations.length === 0) setupViolations.push(...(await verifyPiGrepReachesRgWrapper()));
 
 	let sandburgStatus: SandburgCheckStatus = { valid: true, violations: [] };
 	let toolsDisabledUntilReload = false;
@@ -141,6 +222,12 @@ export default async function (pi: ExtensionAPI) {
 		notify?.(`Additional tools are active outside the sandburg core tool set: ${names.join(", ")}. They remain enabled. Run /sandburg for details.\n`);
 	};
 
+	const warnAboutPiWrapperPropagation = (notify?: (message: string) => void) => {
+		const piWrapper = runtimeState.piWrapperPropagation;
+		if (piWrapper.status !== "unavailable") return;
+		notify?.(`Nested Pi wrapper propagation is unavailable: ${piWrapper.violations.join("; ")}. Child Pi processes launched as \`pi\` may not load Sandburg. Run /sandburg for details.\n`);
+	};
+
 	pi.registerCommand("sandburg", {
 		description: "Show sandburg sandbox status",
 		handler: async (_args, ctx) => {
@@ -155,6 +242,7 @@ export default async function (pi: ExtensionAPI) {
 		registerSandburgTools(ctx.cwd);
 		checkSandburg((message) => ctx.ui.notify(message, "warning"));
 		warnAboutAdditionalActiveTools((message) => ctx.ui.notify(message, "warning"));
+		warnAboutPiWrapperPropagation((message) => ctx.ui.notify(message, "warning"));
 	});
 
 	pi.on("before_agent_start", async () => {
