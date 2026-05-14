@@ -118,6 +118,82 @@ test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 	}
 });
 
+test("Pi RPC mode loads Sandburg from the local package root", async (t) => {
+	const piBin = piBinPath();
+	if (!piBin) {
+		t.skip("Pi CLI not found; set PI_BIN or put pi on PATH");
+		return;
+	}
+
+	const dir = await mkTestDir("pi-rpc-package-root");
+	try {
+		const cwd = join(dir, "project");
+		const agentDir = join(dir, "agent");
+		await mkdir(cwd, { recursive: true });
+		await mkdir(agentDir, { recursive: true });
+
+		const input = [
+			{ id: "commands", type: "get_commands" },
+			{ id: "sandburg-status", type: "prompt", message: "/sandburg" },
+		]
+			.map((command) => JSON.stringify(command))
+			.join("\n") + "\n";
+
+		const result = spawnSync(
+			piBin,
+			[
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"--no-skills",
+				"--no-prompt-templates",
+				"--no-themes",
+				"--no-context-files",
+				"-e",
+				join(repoRoot(), "tests", "fixtures", "scripted-provider.ts"),
+				"-e",
+				repoRoot(),
+				"--provider",
+				"sandburg-test",
+				"--model",
+				"scripted",
+			],
+			{
+				cwd,
+				env: piSubprocessEnv({
+					piBin,
+					agentDir,
+					home: cwd,
+					extra: {
+						SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
+						SANDBURG_TEST_PROVIDER_SCRIPT: "[]",
+					},
+				}),
+				input,
+				encoding: "utf8",
+				stdio: ["pipe", "pipe", "pipe"],
+				timeout: 30000,
+			},
+		);
+
+		assertPiRpcSucceeded(result);
+
+		const messages = parseJsonLines(result.stdout);
+		const commandsResponse = rpcResponse(messages, "commands");
+		assert.equal(commandsResponse.success, true);
+		assert.ok(
+			commandsResponse.data.commands.some(
+				(command) => command.name === "sandburg" && command.source === "extension",
+			),
+			"expected Sandburg slash command to be registered when loaded from package root",
+		);
+		assert.equal(rpcResponse(messages, "sandburg-status").success, true);
+	} finally {
+		await rmTestDir(dir);
+	}
+});
+
 test("Pi RPC Sandburg status reports runtime-added active tools", async (t) => {
 	const piBin = piBinPath();
 	if (!piBin) {
