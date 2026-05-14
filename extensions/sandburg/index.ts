@@ -29,6 +29,7 @@ import {
 	registerGuardedReadToolDefinition,
 	registerGuardedWriteToolDefinition,
 } from "./path-policy.js";
+import { claimSandburgProcessEnv, initializeSandburgRuntime } from "./runtime-state.js";
 import {
 	buildSandburgStatus,
 	checkSandburgSetup,
@@ -45,20 +46,21 @@ const SANDBOXED_BASH_PROMPT_GUIDELINES = [
 ];
 
 export default async function (pi: ExtensionAPI) {
+	initializeSandburgRuntime(import.meta.url);
+	const envHandle = claimSandburgProcessEnv({
+		SANDBURG_ACTIVE: ACTIVE_MARKER,
+		SANDBURG_AGENT_DIR: AGENT_DIR,
+		SANDBURG_AUTH_PATH: AUTH_JSON_PATH,
+	});
+
 	const setupViolations = installSandburgHelpers();
 	if (setupViolations.length === 0) setupViolations.push(...(await verifyPiGrepReachesRgWrapper()));
 
 	let sandburgStatus: SandburgCheckStatus = { valid: true, violations: [] };
 	let toolsDisabledUntilReload = false;
 
-	process.env.SANDBURG_ACTIVE = ACTIVE_MARKER;
-	process.env.SANDBURG_AGENT_DIR = AGENT_DIR;
-	process.env.SANDBURG_AUTH_PATH = AUTH_JSON_PATH;
-
 	pi.on("session_shutdown", () => {
-		if (process.env.SANDBURG_ACTIVE === ACTIVE_MARKER) delete process.env.SANDBURG_ACTIVE;
-		if (process.env.SANDBURG_AGENT_DIR === AGENT_DIR) delete process.env.SANDBURG_AGENT_DIR;
-		if (process.env.SANDBURG_AUTH_PATH === AUTH_JSON_PATH) delete process.env.SANDBURG_AUTH_PATH;
+		envHandle.release();
 	});
 
 	let registeredCwd: string | undefined;

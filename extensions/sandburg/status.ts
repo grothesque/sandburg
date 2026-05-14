@@ -9,6 +9,11 @@ import {
 	JITI_CACHE_DIR,
 	checkSandburgHelpers,
 } from "./helpers.js";
+import {
+	SANDBURG_DISABLE_PROPAGATION_ENV,
+	describeRealPiInvocation,
+	getSandburgRuntimeState,
+} from "./runtime-state.js";
 
 type ToolInfo = ReturnType<ExtensionAPI["getAllTools"]>[number];
 
@@ -263,6 +268,9 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 			return `${mount.mountPoint} (${mode})`;
 		});
 	const additionalActiveTools = getAdditionalActiveToolNames(pi);
+	const runtimeState = getSandburgRuntimeState();
+	const unknownDisableTokens = runtimeState.propagationDisable.unknownTokens;
+	const disabledPropagation = [...runtimeState.propagationDisable.disabled].sort();
 	const warnings = [
 		!sandburgCheck.valid &&
 			(toolsDisabledUntilReload
@@ -271,6 +279,8 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		sandburgCheck.valid && toolsDisabledUntilReload && "All tools are disabled until /reload.",
 		additionalActiveTools.length > 0 &&
 			`Additional tools are active outside the sandburg core tool set: ${additionalActiveTools.join(", ")}`,
+		unknownDisableTokens.length > 0 &&
+			`Unknown ${SANDBURG_DISABLE_PROPAGATION_ENV} token(s): ${unknownDisableTokens.join(", ")}`,
 		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
 		broadHostExposures.length > 0 && "Broad host exposure detected!",
 	].filter(Boolean) as string[];
@@ -303,6 +313,14 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		"- network disabled",
 		"- protected paths:",
 		...protectedPaths.map((path) => `  - ${path}`),
+	);
+
+	lines.push(
+		"",
+		"Sandburg process state",
+		`- propagated extension path: ${runtimeState.resolvedSandburgExtensionPath ?? "(not initialized)"}`,
+		`- real Pi invocation: ${describeRealPiInvocation(runtimeState.realPiInvocation)}`,
+		`- propagation disabled: ${disabledPropagation.length > 0 ? disabledPropagation.join(", ") : "(none)"}`,
 	);
 
 	return { text: lines.join("\n"), severity: warnings.length === 0 ? "success" : "warning" };
