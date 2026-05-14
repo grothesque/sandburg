@@ -81,6 +81,15 @@ const {
 	SettingsManager,
 } = piSdk;
 
+export {
+	AuthStorage,
+	createAgentSession,
+	DefaultResourceLoader,
+	ModelRegistry,
+	SessionManager,
+	SettingsManager,
+};
+
 export function assistantText(text, options = {}) {
 	return piAi.fauxAssistantMessage(text, options);
 }
@@ -101,6 +110,13 @@ function restoreEnv(savedEnv) {
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;
 	}
+}
+
+function emitTestSessionShutdown(session) {
+	// Pi's real runtime emits session_shutdown before disposal. The SDK test
+	// harness owns sessions directly, so mirror that lifecycle enough for
+	// extensions that keep process-global ownership counts.
+	void session?.extensionRunner.emit({ type: "session_shutdown", reason: "shutdown" });
 }
 
 function applySessionEnv(agentDir, extraEnv = {}) {
@@ -215,6 +231,7 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 				if (disposed) return;
 				disposed = true;
 				unsubscribe();
+				emitTestSessionShutdown(session);
 				session.dispose();
 				faux.unregister();
 				restoreProcessEnv();
@@ -222,6 +239,7 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 		};
 	} catch (error) {
 		unsubscribe();
+		emitTestSessionShutdown(session);
 		session?.dispose();
 		faux.unregister();
 		restoreProcessEnv();

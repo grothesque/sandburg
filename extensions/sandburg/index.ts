@@ -38,11 +38,15 @@ import {
 	SANDBURG_EXTENSION_PATH_ENV,
 	SANDBURG_REAL_PI_ARGS_JSON_ENV,
 	SANDBURG_REAL_PI_COMMAND_ENV,
+	claimActiveSandburgSession,
 	claimSandburgProcessEnv,
 	initializeSandburgRuntime,
 	setPiWrapperPropagationState,
+	type ActiveSessionHandle,
+	type EnvOwnershipHandle,
 	type SandburgRuntimeState,
 } from "./runtime-state.js";
+import { setupSdkPropagation } from "./sdk-propagation.js";
 import {
 	buildSandburgStatus,
 	checkSandburgSetup,
@@ -126,22 +130,38 @@ function setupPiWrapperPropagation(runtimeState: SandburgRuntimeState): Record<s
 
 export default async function (pi: ExtensionAPI) {
 	const runtimeState = initializeSandburgRuntime(import.meta.url);
+	setupSdkPropagation(runtimeState);
 
 	const setupViolations = installSandburgHelpers();
 	if (setupViolations.length === 0) setupViolations.push(...(await verifyPiGrepReachesRgWrapper()));
 
-	const envHandle = claimSandburgProcessEnv({
-		SANDBURG_ACTIVE: ACTIVE_MARKER,
-		SANDBURG_AGENT_DIR: AGENT_DIR,
-		SANDBURG_AUTH_PATH: AUTH_JSON_PATH,
-		...setupPiWrapperPropagation(runtimeState),
-	});
+	let envHandle: EnvOwnershipHandle | undefined;
+	const claimProcessEnv = () => {
+		if (envHandle) return;
+		envHandle = claimSandburgProcessEnv({
+			SANDBURG_ACTIVE: ACTIVE_MARKER,
+			SANDBURG_AGENT_DIR: AGENT_DIR,
+			SANDBURG_AUTH_PATH: AUTH_JSON_PATH,
+			...setupPiWrapperPropagation(runtimeState),
+		});
+	};
+	const releaseProcessEnv = () => {
+		envHandle?.release();
+		envHandle = undefined;
+	};
 
 	let sandburgStatus: SandburgCheckStatus = { valid: true, violations: [] };
 	let toolsDisabledUntilReload = false;
 
+	let activeSessionHandle: ActiveSessionHandle | undefined;
+	const releaseActiveSession = () => {
+		activeSessionHandle?.release();
+		activeSessionHandle = undefined;
+	};
+
 	pi.on("session_shutdown", () => {
-		envHandle.release();
+		releaseActiveSession();
+		releaseProcessEnv();
 	});
 
 	let registeredCwd: string | undefined;
@@ -228,6 +248,12 @@ export default async function (pi: ExtensionAPI) {
 		notify?.(`Nested Pi wrapper propagation is unavailable: ${piWrapper.violations.join("; ")}. Child Pi processes launched as \`pi\` may not load Sandburg. Run /sandburg for details.\n`);
 	};
 
+	const warnAboutSdkPropagation = (notify?: (message: string) => void) => {
+		const sdkPropagation = runtimeState.sdkPropagation;
+		if (sdkPropagation.status !== "unavailable") return;
+		notify?.(`Nested Pi SDK session propagation is unavailable: ${sdkPropagation.violations.join("; ")}. SDK-created sessions may not load Sandburg. Run /sandburg for details.\n`);
+	};
+
 	pi.registerCommand("sandburg", {
 		description: "Show sandburg sandbox status",
 		handler: async (_args, ctx) => {
@@ -239,10 +265,13 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		activeSessionHandle ??= claimActiveSandburgSession();
+		claimProcessEnv();
 		registerSandburgTools(ctx.cwd);
 		checkSandburg((message) => ctx.ui.notify(message, "warning"));
 		warnAboutAdditionalActiveTools((message) => ctx.ui.notify(message, "warning"));
 		warnAboutPiWrapperPropagation((message) => ctx.ui.notify(message, "warning"));
+		warnAboutSdkPropagation((message) => ctx.ui.notify(message, "warning"));
 	});
 
 	pi.on("before_agent_start", async () => {

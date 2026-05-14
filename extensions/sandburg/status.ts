@@ -272,6 +272,7 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 	const unknownDisableTokens = runtimeState.propagationDisable.unknownTokens;
 	const disabledPropagation = [...runtimeState.propagationDisable.disabled].sort();
 	const piWrapper = runtimeState.piWrapperPropagation;
+	const sdkPropagation = runtimeState.sdkPropagation;
 	const warnings = [
 		!sandburgCheck.valid &&
 			(toolsDisabledUntilReload
@@ -284,6 +285,8 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 			`Unknown ${SANDBURG_DISABLE_PROPAGATION_ENV} token(s): ${unknownDisableTokens.join(", ")}`,
 		piWrapper.status === "unavailable" &&
 			`Nested Pi wrapper propagation is unavailable: ${piWrapper.violations.join("; ")}`,
+		sdkPropagation.status === "unavailable" &&
+			`Nested Pi SDK session propagation is unavailable: ${sdkPropagation.violations.join("; ")}`,
 		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
 		broadHostExposures.length > 0 && "Broad host exposure detected!",
 	].filter(Boolean) as string[];
@@ -326,6 +329,7 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		`- first pi on PATH: ${piWrapper.firstPiOnPath ?? "(not found)"}${piWrapper.firstPiOnPath ? (piWrapper.firstPiOnPathManaged ? " (Sandburg-managed)" : " (not Sandburg-managed)") : ""}`,
 		`- real Pi invocation: ${describeRealPiInvocation(runtimeState.realPiInvocation, runtimeState.realPiInvocationUnavailableReason)}`,
 		`- propagated Sandburg extension: ${runtimeState.resolvedSandburgExtensionPath ?? "(not initialized)"}`,
+		`- SDK session propagation: ${sdkPropagation.status}`,
 		`- propagation disabled: ${disabledPropagation.length > 0 ? disabledPropagation.join(", ") : "(none)"}`,
 	);
 

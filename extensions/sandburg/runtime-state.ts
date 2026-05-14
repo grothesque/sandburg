@@ -30,6 +30,11 @@ export type PiWrapperPropagationState = {
 	firstPiOnPathManaged?: boolean;
 };
 
+export type SdkPropagationState = {
+	status: "not-started" | "active" | "disabled" | "unavailable";
+	violations: string[];
+};
+
 type EnvVarOwnership = {
 	originalValue: string | undefined;
 	currentValue: string;
@@ -37,6 +42,10 @@ type EnvVarOwnership = {
 };
 
 export type EnvOwnershipHandle = {
+	release(): void;
+};
+
+export type ActiveSessionHandle = {
 	release(): void;
 };
 
@@ -53,7 +62,9 @@ export type SandburgRuntimeState = {
 	realPiInvocationUnavailableReason?: string;
 	propagationDisable: PropagationDisableState;
 	piWrapperPropagation: PiWrapperPropagationState;
+	sdkPropagation: SdkPropagationState;
 	envVars: Map<string, EnvVarOwnership>;
+	activeSessionOwners: Set<symbol>;
 };
 
 const RUNTIME_STATE_SYMBOL = Symbol.for("sandburg.runtime-state.v1");
@@ -68,12 +79,18 @@ function createPiWrapperPropagationState(): PiWrapperPropagationState {
 	return { status: "not-started", violations: [], pathUpdated: false };
 }
 
+function createSdkPropagationState(): SdkPropagationState {
+	return { status: "not-started", violations: [] };
+}
+
 function createRuntimeState(): SandburgRuntimeState {
 	return {
 		version: 1,
 		propagationDisable: createDefaultDisableState(),
 		piWrapperPropagation: createPiWrapperPropagationState(),
+		sdkPropagation: createSdkPropagationState(),
 		envVars: new Map(),
+		activeSessionOwners: new Set(),
 	};
 }
 
@@ -234,6 +251,29 @@ export function claimSandburgProcessEnv(values: Record<string, string>): EnvOwne
 
 export function setPiWrapperPropagationState(update: PiWrapperPropagationState) {
 	getSandburgRuntimeState().piWrapperPropagation = update;
+}
+
+export function setSdkPropagationState(update: SdkPropagationState) {
+	getSandburgRuntimeState().sdkPropagation = update;
+}
+
+export function claimActiveSandburgSession(): ActiveSessionHandle {
+	const state = getSandburgRuntimeState();
+	const owner = Symbol("sandburg-active-session-owner");
+	let released = false;
+	state.activeSessionOwners.add(owner);
+
+	return {
+		release() {
+			if (released) return;
+			released = true;
+			state.activeSessionOwners.delete(owner);
+		},
+	};
+}
+
+export function hasActiveSandburgSession(state = getSandburgRuntimeState()): boolean {
+	return state.activeSessionOwners.size > 0;
 }
 
 export function describeRealPiInvocation(invocation: RealPiInvocation | undefined, unavailableReason?: string): string {

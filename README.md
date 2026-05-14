@@ -92,6 +92,10 @@ set `SANDBURG_PASS_VARS` to a colon-separated exact-name allowlist.
 Entries must be non-empty shell variable names and cannot begin with `SANDBURG_`.
 Listed variables that are not exported are omitted.
 
+For expert troubleshooting,
+`SANDBURG_DISABLE_PROPAGATION=pi-wrapper,sdk` disables nested-session propagation mechanisms.
+This weakens subagent protection and should normally be unset.
+
 ### Extra read-only paths
 
 Sometimes, the outer sandbox needs to grant the Pi process write access
@@ -109,13 +113,14 @@ This variable is meant for this specific use case.
 
 When Sandburg is loaded in a top-level Pi process,
 it also tries to load itself into ordinary nested Pi sessions created by trusted extensions.
-This covers child Pi processes launched as `pi`.
+This covers child Pi processes launched as `pi`
+and common in-process sessions created through Pi’s SDK.
 It is best-effort compatibility for non-malicious extensions,
 not a boundary against malicious extension code running in the same Pi process.
 
 Nested-session protection is best-effort.
 It covers common child Pi sessions,
-but some custom extension setups may need separate review.
+but some custom extension or SDK setups may need separate review.
 Check `/sandburg` if nested-session behavior matters for your workflow.
 
 ## Recommended Sandkasten + Sandburg setup
@@ -224,9 +229,9 @@ In addition, Sandburg restricts the built-in tools in the following way:
 - `ls` and `find` do not need to be reimplemented since they neither read files nor access the network.
   Sandburg verifies that they remain Pi’s ordinary built-in tools.
 
-For child Pi sessions,
+For nested sessions,
 Sandburg also installs best-effort propagation hooks as described above.
-On each reload, Sandburg ensures that this tool contract is valid.
+On each reload, Sandburg ensures that the core built-in-tool contract is valid.
 If it is not, it disables all tools and warns the user.
 
 Note: Sandburg does not intercept Pi user bash commands (`!` and `!!`),
