@@ -92,6 +92,9 @@ set `SANDBURG_PASS_VARS` to a colon-separated exact-name allowlist.
 Entries must be non-empty shell variable names and cannot begin with `SANDBURG_`.
 Listed variables that are not exported are omitted.
 
+Sandkasten clears most environment variables by default.
+Pass trusted Sandburg-related variables through Sandkasten with `+V`
+when you want them to affect the Pi process and Sandburg’s tool sandbox.
 For expert troubleshooting,
 `SANDBURG_DISABLE_PROPAGATION=pi-wrapper,sdk` disables nested-session propagation mechanisms.
 This weakens subagent protection and should normally be unset.
@@ -117,6 +120,7 @@ This covers child Pi processes launched as `pi`
 and common in-process sessions created through Pi’s SDK.
 It is best-effort compatibility for non-malicious extensions,
 not a boundary against malicious extension code running in the same Pi process.
+The `/sandburg` command reports whether these propagation mechanisms are active.
 
 Nested-session protection is best-effort.
 It covers common child Pi sessions,
@@ -233,6 +237,9 @@ For nested sessions,
 Sandburg also installs best-effort propagation hooks as described above.
 On each reload, Sandburg ensures that the core built-in-tool contract is valid.
 If it is not, it disables all tools and warns the user.
+Run `/sandburg` after launch or `/reload` to inspect helper setup,
+protected paths, outer-sandbox signals, active extra extension tools,
+and nested-session propagation status.
 
 Note: Sandburg does not intercept Pi user bash commands (`!` and `!!`),
 but `! rg ...` and `! pi ...` will typically use Sandburg’s managed wrappers.
@@ -260,6 +267,7 @@ A bug in bubblewrap or an exploitable kernel vulnerability could allow
 sandbox escape.
 
 Sandburg does not constrain agent tools beyond the built-in ones.
+Extension code and extension-provided tools remain trusted code running with the Pi process’s permissions.
 The `/sandburg` command lists any such additional tools that are active.
 
 ## Development

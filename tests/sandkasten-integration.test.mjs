@@ -144,10 +144,10 @@ test("Pi RPC status works inside optional Sandkasten outer sandbox", async (t) =
 				&& message.message.includes("Agent tool restrictions"),
 		);
 		assert.ok(statusNotify, "expected /sandburg to emit a status notification");
-		assert.match(statusNotify.message, /Outer sandbox for the pi process/);
+		assert.match(statusNotify.message, /Outer sandbox for the Pi process/);
 		assert.match(statusNotify.message, /Agent tool restrictions/);
 		assert.match(statusNotify.message, /network disabled/);
-		assert.doesNotMatch(statusNotify.message, /No outer sandbox for the pi process detected/);
+		assert.doesNotMatch(statusNotify.message, /No outer sandbox for the Pi process detected/);
 		assert.doesNotMatch(statusNotify.message, /Broad host exposure detected/);
 	} finally {
 		await rmTestDir(dir);

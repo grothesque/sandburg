@@ -112,6 +112,8 @@ test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 		assert.ok(statusNotify, "expected /sandburg to emit a status notification");
 		assert.match(statusNotify.message, /Agent tool restrictions/);
 		assert.match(statusNotify.message, /network disabled/);
+		assert.match(statusNotify.message, /Nested Pi propagation/);
+		assert.match(statusNotify.message, /argv\[1\] propagation: not enabled/);
 		assert.doesNotMatch(statusNotify.message, /Additional tools are active/);
 	} finally {
 		await rmTestDir(dir);
@@ -271,6 +273,8 @@ test("Pi RPC Sandburg status reports runtime-added active tools", async (t) => {
 		assert.equal(statusNotifications.length, 2);
 		assert.doesNotMatch(statusNotifications[0].message, new RegExp(runtimeToolName));
 		assert.match(statusNotifications[1].message, new RegExp(runtimeToolName));
+		assert.match(statusNotifications[1].message, /Additional tools are active outside Sandburg's built-in-tool sandbox/);
+		assert.match(statusNotifications[1].message, /Extension tools are assumed trusted and remain enabled/);
 	} finally {
 		await rmTestDir(dir);
 	}

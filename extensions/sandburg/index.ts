@@ -50,7 +50,8 @@ import { setupSdkPropagation } from "./sdk-propagation.js";
 import {
 	buildSandburgStatus,
 	checkSandburgSetup,
-	getAdditionalActiveToolNames,
+	getAdditionalActiveToolsWarning,
+	getOuterSandboxStartupWarnings,
 	type SandburgCheckStatus,
 } from "./status.js";
 
@@ -237,9 +238,8 @@ export default async function (pi: ExtensionAPI) {
 	// keeping intentionally enabled tools usable.
 	const warnAboutAdditionalActiveTools = (notify?: (message: string) => void) => {
 		if (!sandburgStatus.valid) return;
-		const names = getAdditionalActiveToolNames(pi);
-		if (names.length === 0) return;
-		notify?.(`Additional tools are active outside the sandburg core tool set: ${names.join(", ")}. They remain enabled. Run /sandburg for details.\n`);
+		const additionalToolsWarning = getAdditionalActiveToolsWarning(pi);
+		if (additionalToolsWarning) notify?.(`${additionalToolsWarning} Run /sandburg for details.\n`);
 	};
 
 	const warnAboutPiWrapperPropagation = (notify?: (message: string) => void) => {
@@ -252,6 +252,13 @@ export default async function (pi: ExtensionAPI) {
 		const sdkPropagation = runtimeState.sdkPropagation;
 		if (sdkPropagation.status !== "unavailable") return;
 		notify?.(`Nested Pi SDK session propagation is unavailable: ${sdkPropagation.violations.join("; ")}. SDK-created sessions may not load Sandburg. Run /sandburg for details.\n`);
+	};
+
+	let outerSandboxWarningsEmitted = false;
+	const warnAboutOuterSandbox = (notify?: (message: string) => void) => {
+		if (outerSandboxWarningsEmitted) return;
+		outerSandboxWarningsEmitted = true;
+		for (const warning of getOuterSandboxStartupWarnings()) notify?.(`${warning}\n`);
 	};
 
 	pi.registerCommand("sandburg", {
@@ -272,6 +279,7 @@ export default async function (pi: ExtensionAPI) {
 		warnAboutAdditionalActiveTools((message) => ctx.ui.notify(message, "warning"));
 		warnAboutPiWrapperPropagation((message) => ctx.ui.notify(message, "warning"));
 		warnAboutSdkPropagation((message) => ctx.ui.notify(message, "warning"));
+		warnAboutOuterSandbox((message) => ctx.ui.notify(message, "warning"));
 	});
 
 	pi.on("before_agent_start", async () => {

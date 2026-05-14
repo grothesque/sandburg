@@ -176,6 +176,12 @@ export type SandburgStatus = {
 	severity: "success" | "warning";
 };
 
+export type OuterSandboxStatus = {
+	namespaceSandboxDetected: boolean;
+	hostWritableMounts: string[];
+	broadHostExposures: string[];
+};
+
 function describeToolSource(tool: ToolInfo): string {
 	const path = tool.sourceInfo.path;
 	switch (tool.sourceInfo.source) {
@@ -214,6 +220,54 @@ export function getAdditionalActiveToolNames(pi: ExtensionAPI): string[] {
 	);
 }
 
+export function getAdditionalActiveToolsWarning(pi: ExtensionAPI): string | undefined {
+	const names = getAdditionalActiveToolNames(pi);
+	if (names.length === 0) return undefined;
+	return [
+		"Additional tools are active outside Sandburg's built-in-tool sandbox.",
+		"  Extension tools are assumed trusted and remain enabled.",
+		"  Active tools:",
+		...names.map((name) => `  - ${name}`),
+	].join("\n");
+}
+
+export function getOuterSandboxStatus(): OuterSandboxStatus {
+	const mounts = parseMountInfo(readProcFile("/proc/self/mountinfo"));
+	const status = parseProcStatus(readProcFile("/proc/self/status"));
+	const uidMap = readProcFile("/proc/self/uid_map")?.trim();
+	const gidMap = readProcFile("/proc/self/gid_map")?.trim();
+	const rootMount = mounts.find((mount) => mount.mountPoint === "/");
+	const noNewPrivs = status.NoNewPrivs === "1";
+	const capsNone = ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"].every((name) => isZeroCapability(status[name]));
+	const userNamespaceMapped =
+		(uidMap !== undefined && !isInitialUserNamespaceMap(uidMap)) ||
+		(gidMap !== undefined && !isInitialUserNamespaceMap(gidMap));
+	const namespaceSandboxDetected =
+		userNamespaceMapped || noNewPrivs || capsNone || (rootMount?.fsType === "tmpfs" && rootMount.root !== "/");
+	const sortedNonVirtualMounts = mounts
+		.filter((mount) => !isVirtualMount(mount))
+		.sort((a, b) => a.mountPoint.localeCompare(b.mountPoint));
+	const hostWritableMounts = sortedNonVirtualMounts
+		.filter((mount) => mount.fsType !== "overlay" && !isReadOnlyMount(mount))
+		.map((mount) => mount.mountPoint);
+	const broadHostExposures = sortedNonVirtualMounts
+		.filter((mount) => isBroadHostExposureTarget(mount.mountPoint))
+		.map((mount) => {
+			const mode = mount.fsType === "overlay" ? "tmp overlay" : isReadOnlyMount(mount) ? "read-only" : "writable";
+			return `${mount.mountPoint} (${mode})`;
+		});
+
+	return { namespaceSandboxDetected, hostWritableMounts, broadHostExposures };
+}
+
+export function getOuterSandboxStartupWarnings(outerSandbox = getOuterSandboxStatus()): string[] {
+	return [
+		!outerSandbox.namespaceSandboxDetected &&
+			"No outer sandbox for the Pi process detected. Sandburg protects built-in tools, not arbitrary extension code or the Pi process itself. Run /sandburg for details.",
+		outerSandbox.broadHostExposures.length > 0 && "Broad host exposure detected. Run /sandburg for details.",
+	].filter(Boolean) as string[];
+}
+
 export function checkSandburgSetup(pi: ExtensionAPI, setupViolations: string[] = []): SandburgCheckStatus {
 	const tools = toolByName(pi);
 	const violations = new Set<string>(setupViolations);
@@ -243,31 +297,8 @@ export function checkSandburgSetup(pi: ExtensionAPI, setupViolations: string[] =
 }
 
 export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandburgSetup(pi), toolsDisabledUntilReload = false): SandburgStatus {
-	const mounts = parseMountInfo(readProcFile("/proc/self/mountinfo"));
-	const status = parseProcStatus(readProcFile("/proc/self/status"));
-	const uidMap = readProcFile("/proc/self/uid_map")?.trim();
-	const gidMap = readProcFile("/proc/self/gid_map")?.trim();
-	const rootMount = mounts.find((mount) => mount.mountPoint === "/");
-	const noNewPrivs = status.NoNewPrivs === "1";
-	const capsNone = ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"].every((name) => isZeroCapability(status[name]));
-	const userNamespaceMapped =
-		(uidMap !== undefined && !isInitialUserNamespaceMap(uidMap)) ||
-		(gidMap !== undefined && !isInitialUserNamespaceMap(gidMap));
-	const namespaceSandboxDetected =
-		userNamespaceMapped || noNewPrivs || capsNone || (rootMount?.fsType === "tmpfs" && rootMount.root !== "/");
-	const sortedNonVirtualMounts = mounts
-		.filter((mount) => !isVirtualMount(mount))
-		.sort((a, b) => a.mountPoint.localeCompare(b.mountPoint));
-	const hostWritableMounts = sortedNonVirtualMounts
-		.filter((mount) => mount.fsType !== "overlay" && !isReadOnlyMount(mount))
-		.map((mount) => mount.mountPoint);
-	const broadHostExposures = sortedNonVirtualMounts
-		.filter((mount) => isBroadHostExposureTarget(mount.mountPoint))
-		.map((mount) => {
-			const mode = mount.fsType === "overlay" ? "tmp overlay" : isReadOnlyMount(mount) ? "read-only" : "writable";
-			return `${mount.mountPoint} (${mode})`;
-		});
-	const additionalActiveTools = getAdditionalActiveToolNames(pi);
+	const outerSandbox = getOuterSandboxStatus();
+	const additionalActiveToolsWarning = getAdditionalActiveToolsWarning(pi);
 	const runtimeState = getSandburgRuntimeState();
 	const unknownDisableTokens = runtimeState.propagationDisable.unknownTokens;
 	const disabledPropagation = [...runtimeState.propagationDisable.disabled].sort();
@@ -279,16 +310,16 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 				? "Sandburg setup is invalid, so all tools are disabled until /reload."
 				: "Sandburg setup is invalid."),
 		sandburgCheck.valid && toolsDisabledUntilReload && "All tools are disabled until /reload.",
-		additionalActiveTools.length > 0 &&
-			`Additional tools are active outside the sandburg core tool set: ${additionalActiveTools.join(", ")}`,
+		additionalActiveToolsWarning,
 		unknownDisableTokens.length > 0 &&
 			`Unknown ${SANDBURG_DISABLE_PROPAGATION_ENV} token(s): ${unknownDisableTokens.join(", ")}`,
 		piWrapper.status === "unavailable" &&
 			`Nested Pi wrapper propagation is unavailable: ${piWrapper.violations.join("; ")}`,
 		sdkPropagation.status === "unavailable" &&
 			`Nested Pi SDK session propagation is unavailable: ${sdkPropagation.violations.join("; ")}`,
-		!namespaceSandboxDetected && "No outer sandbox for the pi process detected!",
-		broadHostExposures.length > 0 && "Broad host exposure detected!",
+		!outerSandbox.namespaceSandboxDetected &&
+			"No outer sandbox for the Pi process detected. Sandburg protects built-in tools, not arbitrary extension code or the Pi process itself.",
+		outerSandbox.broadHostExposures.length > 0 && "Broad host exposure detected.",
 	].filter(Boolean) as string[];
 	const protectedPaths = [AGENT_DIR, JITI_CACHE_DIR, ...EXTRA_RO_PATHS];
 
@@ -303,12 +334,12 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		for (const violation of sandburgCheck.violations) lines.push(`- ${violation}`);
 	}
 
-	lines.push("", "Outer sandbox for the pi process");
-	if (namespaceSandboxDetected) {
-		appendPathList(lines, "host-writable mounts", hostWritableMounts);
-		if (broadHostExposures.length > 0) appendPathList(lines, "broad host exposure", broadHostExposures);
-	} else if (broadHostExposures.length > 0) {
-		appendPathList(lines, "broad host exposure", broadHostExposures);
+	lines.push("", "Outer sandbox for the Pi process");
+	if (outerSandbox.namespaceSandboxDetected) {
+		appendPathList(lines, "host-writable mounts", outerSandbox.hostWritableMounts);
+		if (outerSandbox.broadHostExposures.length > 0) appendPathList(lines, "broad host exposure", outerSandbox.broadHostExposures);
+	} else if (outerSandbox.broadHostExposures.length > 0) {
+		appendPathList(lines, "broad host exposure", outerSandbox.broadHostExposures);
 	} else {
 		lines.push("- not detected");
 	}
@@ -330,6 +361,7 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		`- real Pi invocation: ${describeRealPiInvocation(runtimeState.realPiInvocation, runtimeState.realPiInvocationUnavailableReason)}`,
 		`- propagated Sandburg extension: ${runtimeState.resolvedSandburgExtensionPath ?? "(not initialized)"}`,
 		`- SDK session propagation: ${sdkPropagation.status}`,
+		"- argv[1] propagation: not enabled",
 		`- propagation disabled: ${disabledPropagation.length > 0 ? disabledPropagation.join(", ") : "(none)"}`,
 	);
 
