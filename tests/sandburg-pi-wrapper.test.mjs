@@ -2,13 +2,13 @@
 
 import { spawnSync } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, realpathSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { createJiti } from "jiti";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_PATH, mkTestDir, rmTestDir } from "./helpers/test-env.mjs";
+import { DEFAULT_PATH, mkTestDir, repoRoot, rmTestDir, sandburgExtensionPath } from "./helpers/test-env.mjs";
 import { createSandburgSdkSession } from "./helpers/pi-sdk-harness.mjs";
 
 const jiti = createJiti(import.meta.url, { moduleCache: false });
@@ -334,6 +334,49 @@ test("Sandburg pi wrapper installer refuses an unmanaged wrapper path", async ()
 		assert.match(result.violations.join("\n"), /unmanaged file/);
 		assert.equal(await readFile(unmanagedPiPath, "utf8"), unmanagedPi);
 	} finally {
+		await rmTestDir(dir);
+	}
+});
+
+test("extension subprocesses that spawn pi reach Sandburg's managed wrapper when propagation is configured", async () => {
+	const dir = await mkTestDir("sandburg-pi-wrapper-extension-spawn");
+	let harness;
+	try {
+		const cwd = join(dir, "project");
+		const agentDir = join(dir, "agent");
+		const agentBinDir = join(agentDir, "bin");
+		const fakeRealPi = join(dir, "real-pi");
+		const recordPath = join(dir, "record.json");
+		const nestedArgs = ["--no-extensions", "--mode", "json", "nested prompt"];
+		const propagatedSandburgPath = realpathSync(join(sandburgExtensionPath(), "index.ts"));
+		await mkdir(cwd, { recursive: true });
+		await mkdir(agentDir, { recursive: true });
+		await writeFakeRealPi(fakeRealPi);
+		await installWrapper(agentDir);
+
+		harness = await createSandburgSdkSession({
+			cwd,
+			agentDir,
+			env: {
+				PATH: [agentBinDir, DEFAULT_PATH].join(delimiter),
+				SANDBURG_REAL_PI_COMMAND: process.execPath,
+				SANDBURG_REAL_PI_ARGS_JSON: JSON.stringify([fakeRealPi]),
+				SANDBURG_EXTENSION_PATH: propagatedSandburgPath,
+				SANDBURG_TEST_SPAWN_PI_ARGS_JSON: JSON.stringify(nestedArgs),
+				SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
+			},
+			extraExtensionPaths: [join(repoRoot(), "tests", "fixtures", "spawn-pi-extension.ts")],
+			responses: [],
+		});
+		assert.deepEqual(harness.extensionsResult.errors, []);
+
+		await harness.session.prompt("/spawn-pi-probe");
+
+		const record = await readRecord(recordPath);
+		assert.deepEqual(record.argv, ["-e", propagatedSandburgPath, ...nestedArgs]);
+		assert.equal(record.propagated, "1");
+	} finally {
+		harness?.dispose();
 		await rmTestDir(dir);
 	}
 });
