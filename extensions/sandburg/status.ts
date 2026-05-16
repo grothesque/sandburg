@@ -3,6 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "fs";
 import {
 	ACTIVE_MARKER,
+	checkBubblewrapUsable,
 	checkSandburgHelpers,
 } from "./helpers.js";
 import { PRIVATE_ROOTS, getExtraPrivatePathViolations } from "./private-roots.js";
@@ -263,6 +264,7 @@ export function checkSandburgSetup(pi: ExtensionAPI, setupViolations: string[] =
 		violations.add("sandburg extension marker is not active.");
 	}
 	for (const violation of checkSandburgHelpers()) violations.add(violation);
+	for (const violation of checkBubblewrapUsable()) violations.add(violation);
 	for (const violation of getExtraPrivatePathViolations()) violations.add(violation);
 
 	for (const name of SANDBURG_REDEFINED_TOOL_NAMES) {

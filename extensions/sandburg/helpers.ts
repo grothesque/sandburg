@@ -670,6 +670,42 @@ export function checkSandburgHelpers(): string[] {
 	return [...violations, ...specs.flatMap((spec) => checkManagedExecutable(spec))];
 }
 
+export function checkBubblewrapUsable(): string[] {
+	const result = spawnSync(
+		"bwrap",
+		[
+			"--unshare-all",
+			"--die-with-parent",
+			"--new-session",
+			"--bind",
+			"/",
+			"/",
+			"--dev",
+			"/dev",
+			"--proc",
+			"/proc",
+			"--tmpfs",
+			"/tmp",
+			"--remount-ro",
+			"/tmp",
+			"--clearenv",
+			"/bin/true",
+		],
+		{
+			encoding: "utf-8",
+			stdio: ["ignore", "ignore", "pipe"],
+			timeout: 5000,
+		},
+	);
+
+	if (result.status === 0) return [];
+	if (result.error?.message) return [`bwrap: usability probe failed: ${result.error.message}`];
+
+	const stderr = result.stderr.trim().replace(/\s+/g, " ").slice(0, 500);
+	const detail = result.signal ? `signal ${result.signal}` : `exit code ${result.status ?? "unknown"}`;
+	return [`bwrap: usability probe failed with ${detail}${stderr ? `: ${stderr}` : ""}`];
+}
+
 function getPiWrapperSpec(): ManagedExecutableSpec {
 	return {
 		label: "pi wrapper",
