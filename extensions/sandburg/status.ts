@@ -1,14 +1,11 @@
 // Sandburg status report generation for the /sandburg command
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync } from "fs";
-import { isAbsolute } from "path";
+import { readFileSync } from "fs";
 import {
 	ACTIVE_MARKER,
-	AGENT_DIR,
-	EXTRA_RO_PATHS,
-	JITI_CACHE_DIR,
 	checkSandburgHelpers,
 } from "./helpers.js";
+import { PRIVATE_ROOTS, getExtraPrivatePathViolations } from "./private-roots.js";
 import {
 	SANDBURG_DISABLE_PROPAGATION_ENV,
 	describeRealPiInvocation,
@@ -202,16 +199,6 @@ function toolByName(pi: ExtensionAPI): Map<string, ToolInfo> {
 	return new Map(pi.getAllTools().map((tool) => [tool.name, tool]));
 }
 
-function getExtraRoPathViolations(): string[] {
-	return EXTRA_RO_PATHS.flatMap((path, index) => {
-		const label = `SANDBURG_RO_PATHS entry #${index + 1}`;
-		if (path === "") return [`${label} is empty.`];
-		if (!isAbsolute(path)) return [`${label} is not absolute: ${path}`];
-		if (!existsSync(path)) return [`${label} does not exist: ${path}`];
-		return [];
-	});
-}
-
 export function getAdditionalActiveToolNames(pi: ExtensionAPI): string[] {
 	const allTools = pi.getAllTools();
 	const enabledToolNames = new Set(pi.getActiveTools());
@@ -276,7 +263,7 @@ export function checkSandburgSetup(pi: ExtensionAPI, setupViolations: string[] =
 		violations.add("sandburg extension marker is not active.");
 	}
 	for (const violation of checkSandburgHelpers()) violations.add(violation);
-	for (const violation of getExtraRoPathViolations()) violations.add(violation);
+	for (const violation of getExtraPrivatePathViolations()) violations.add(violation);
 
 	for (const name of SANDBURG_REDEFINED_TOOL_NAMES) {
 		const tool = tools.get(name);
@@ -321,7 +308,7 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 			"No outer sandbox for the Pi process detected. Sandburg protects built-in tools, not arbitrary extension code or the Pi process itself.",
 		outerSandbox.broadHostExposures.length > 0 && "Broad host exposure detected.",
 	].filter(Boolean) as string[];
-	const protectedPaths = [AGENT_DIR, JITI_CACHE_DIR, ...EXTRA_RO_PATHS];
+	const privateRoots = PRIVATE_ROOTS;
 
 	const lines = [warnings.length === 0 ? "Sandburg: OK" : "Check sandburg setup"];
 	if (warnings.length > 0) {
@@ -348,8 +335,9 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		"",
 		"Agent tool restrictions",
 		"- network disabled",
-		"- protected paths:",
-		...protectedPaths.map((path) => `  - ${path}`),
+		"- private Pi/Sandburg state roots are hidden from sandboxed subprocess tools and denied to read/write/edit:",
+		"  (`ls` and `find` may still show file and directory names.)",
+		...privateRoots.map((path) => `  - ${path}`),
 	);
 
 	lines.push(

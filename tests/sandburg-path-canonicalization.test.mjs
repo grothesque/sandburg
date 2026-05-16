@@ -1,4 +1,4 @@
-// Symlinks and SANDBURG_RO_PATHS tests
+// Symlinks and SANDBURG_PRIVATE_PATHS tests
 
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,16 +11,16 @@ import { runSandburgToolCall } from "./helpers/pi-sdk-harness.mjs";
 let dir;
 let cwd;
 let agentDir;
-let extraRoDir;
+let extraPrivateDir;
 
 before(async () => {
 	dir = await mkTestDir("sandburg-path-canonicalization");
 	cwd = join(dir, "project");
 	agentDir = join(dir, "agent");
-	extraRoDir = join(dir, "extra-ro");
+	extraPrivateDir = join(dir, "extra-private");
 	await mkdir(cwd, { recursive: true });
 	await mkdir(agentDir, { recursive: true });
-	await mkdir(extraRoDir, { recursive: true });
+	await mkdir(extraPrivateDir, { recursive: true });
 });
 
 after(async () => {
@@ -28,18 +28,18 @@ after(async () => {
 });
 
 async function runToolCall(toolName, args) {
-	// Sandburg reads SANDBURG_RO_PATHS when its modules load, so keep
-	// this file’s extra protected path stable for every harness session.
+	// Sandburg reads SANDBURG_PRIVATE_PATHS when its modules load, so keep
+	// this file’s extra private path stable for every harness session.
 	return runSandburgToolCall({
 		cwd,
 		agentDir,
 		toolName,
 		args,
-		env: { SANDBURG_RO_PATHS: extraRoDir },
+		env: { SANDBURG_PRIVATE_PATHS: extraPrivateDir },
 	});
 }
 
-test("Sandburg read denies symlinks to Pi credentials", async () => {
+test("Sandburg read denies symlinks to private Pi agent state", async () => {
 	const authPath = join(agentDir, "auth.json");
 	const authLinkPath = join(cwd, "auth-link.json");
 	await writeFile(authPath, "sensitive credentials", "utf8");
@@ -49,7 +49,7 @@ test("Sandburg read denies symlinks to Pi credentials", async () => {
 
 	assert.equal(toolEnd.isError, true);
 	assert.match(resultText, /Access denied/);
-	assert.match(resultText, /protected Pi credential\/cache path/);
+	assert.match(resultText, /private Pi\/Sandburg state/);
 });
 
 test("Sandburg edit denies symlink aliases into the Pi agent directory", async () => {
@@ -65,12 +65,12 @@ test("Sandburg edit denies symlink aliases into the Pi agent directory", async (
 
 	assert.equal(toolEnd.isError, true);
 	assert.match(resultText, /Access denied/);
-	assert.match(resultText, /protected Pi state\/cache path/);
+	assert.match(resultText, /private Pi\/Sandburg state/);
 	assert.equal(await readFile(blockedPath, "utf8"), "original content");
 });
 
-test("Sandburg write denies SANDBURG_RO_PATHS mutations", async () => {
-	const blockedPath = join(extraRoDir, "blocked-extra-ro.txt");
+test("Sandburg write denies SANDBURG_PRIVATE_PATHS mutations", async () => {
+	const blockedPath = join(extraPrivateDir, "blocked-extra-private.txt");
 
 	const { toolEnd, resultText } = await runToolCall("write", {
 		path: blockedPath,
@@ -79,6 +79,6 @@ test("Sandburg write denies SANDBURG_RO_PATHS mutations", async () => {
 
 	assert.equal(toolEnd.isError, true);
 	assert.match(resultText, /Access denied/);
-	assert.match(resultText, /protected Pi state\/cache path/);
+	assert.match(resultText, /private Pi\/Sandburg state/);
 	await assertFileNotExists(blockedPath);
 });

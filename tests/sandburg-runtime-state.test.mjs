@@ -42,7 +42,7 @@ test("Sandburg parses propagation disable tokens", async () => {
 });
 
 test("Sandburg-owned process env survives overlapping owners", async () => {
-	const keys = ["SANDBURG_ACTIVE", "SANDBURG_AGENT_DIR", "SANDBURG_AUTH_PATH"];
+	const keys = ["SANDBURG_ACTIVE", "SANDBURG_AGENT_DIR", "SANDBURG_PRIVATE_PATHS"];
 	const savedEnv = saveEnv(keys);
 	const runtime = await importRuntimeState();
 
@@ -52,27 +52,27 @@ test("Sandburg-owned process env survives overlapping owners", async () => {
 		const first = runtime.claimSandburgProcessEnv({
 			SANDBURG_ACTIVE: "sandburg-extension-v1",
 			SANDBURG_AGENT_DIR: "/tmp/sandburg-agent-a",
-			SANDBURG_AUTH_PATH: "/tmp/sandburg-agent-a/auth.json",
+			SANDBURG_PRIVATE_PATHS: "/tmp/sandburg-private-a",
 		});
 		const second = runtime.claimSandburgProcessEnv({
 			SANDBURG_ACTIVE: "sandburg-extension-v1",
 			SANDBURG_AGENT_DIR: "/tmp/sandburg-agent-b",
-			SANDBURG_AUTH_PATH: "/tmp/sandburg-agent-b/auth.json",
+			SANDBURG_PRIVATE_PATHS: "/tmp/sandburg-private-b",
 		});
 
 		assert.equal(process.env.SANDBURG_ACTIVE, "sandburg-extension-v1");
 		assert.equal(process.env.SANDBURG_AGENT_DIR, "/tmp/sandburg-agent-b");
-		assert.equal(process.env.SANDBURG_AUTH_PATH, "/tmp/sandburg-agent-b/auth.json");
+		assert.equal(process.env.SANDBURG_PRIVATE_PATHS, "/tmp/sandburg-private-b");
 
 		second.release();
 		assert.equal(process.env.SANDBURG_ACTIVE, "sandburg-extension-v1");
 		assert.equal(process.env.SANDBURG_AGENT_DIR, "/tmp/sandburg-agent-a");
-		assert.equal(process.env.SANDBURG_AUTH_PATH, "/tmp/sandburg-agent-a/auth.json");
+		assert.equal(process.env.SANDBURG_PRIVATE_PATHS, "/tmp/sandburg-private-a");
 
 		first.release();
 		assert.equal(process.env.SANDBURG_ACTIVE, undefined);
 		assert.equal(process.env.SANDBURG_AGENT_DIR, undefined);
-		assert.equal(process.env.SANDBURG_AUTH_PATH, undefined);
+		assert.equal(process.env.SANDBURG_PRIVATE_PATHS, undefined);
 
 		// Release handles are idempotent.
 		first.release();

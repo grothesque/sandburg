@@ -2,7 +2,7 @@
  * sandburg: Pi extension for sandboxing agent-facing tools
  *
  * - bash and grep subprocesses run through the tool sandbox runner with network disabled.
- * - read/write/edit are re-registered with path guards for Pi credentials/state.
+ * - read/write/edit are re-registered with path guards for private Pi/Sandburg state.
  * - /sandburg reports protected tools and outer sandbox exposure signals.
  *
  * Extensions are trusted code; this protects against tool misuse and launch/config
@@ -17,10 +17,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
 	ACTIVE_MARKER,
-	AGENT_BIN_DIR,
-	AGENT_DIR,
-	AUTH_JSON_PATH,
-	TOOL_SANDBOX_RUNNER_PATH,
 	ensurePathEntryFirst,
 	findFirstPiOnPath,
 	installSandburgHelpers,
@@ -29,6 +25,14 @@ import {
 	shQuote,
 	verifyPiGrepReachesRgWrapper,
 } from "./helpers.js";
+import {
+	AGENT_BIN_DIR,
+	AGENT_DIR,
+	SANDBURG_AGENT_DIR_ENV,
+	SANDBURG_PRIVATE_PATHS_ENV,
+	SANDBURG_PRIVATE_PATHS_VALUE,
+	TOOL_SANDBOX_RUNNER_PATH,
+} from "./private-roots.js";
 import {
 	registerGuardedEditToolDefinition,
 	registerGuardedReadToolDefinition,
@@ -54,6 +58,12 @@ import {
 	getOuterSandboxStartupWarnings,
 	type SandburgCheckStatus,
 } from "./status.js";
+
+const SANDBURG_TOOL_ENV = {
+	SANDBURG_ACTIVE: ACTIVE_MARKER,
+	[SANDBURG_AGENT_DIR_ENV]: AGENT_DIR,
+	[SANDBURG_PRIVATE_PATHS_ENV]: SANDBURG_PRIVATE_PATHS_VALUE,
+};
 
 const SANDBOXED_BASH_DESCRIPTION =
 	"Execute a bash command in the current working directory inside a sandbox with network access disabled. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.";
@@ -140,9 +150,7 @@ export default async function (pi: ExtensionAPI) {
 	const claimProcessEnv = () => {
 		if (envHandle) return;
 		envHandle = claimSandburgProcessEnv({
-			SANDBURG_ACTIVE: ACTIVE_MARKER,
-			SANDBURG_AGENT_DIR: AGENT_DIR,
-			SANDBURG_AUTH_PATH: AUTH_JSON_PATH,
+			...SANDBURG_TOOL_ENV,
 			...setupPiWrapperPropagation(runtimeState),
 		});
 	};
@@ -192,9 +200,7 @@ export default async function (pi: ExtensionAPI) {
 					cwd,
 					env: {
 						...env,
-						SANDBURG_ACTIVE: ACTIVE_MARKER,
-						SANDBURG_AGENT_DIR: AGENT_DIR,
-						SANDBURG_AUTH_PATH: AUTH_JSON_PATH,
+						...SANDBURG_TOOL_ENV,
 					},
 				};
 			},

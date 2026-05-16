@@ -36,7 +36,7 @@ test("Sandburg grep searches project files when enabled", async (t) => {
 		const { toolEnd, resultText } = await runGrepToolCall({
 			cwd,
 			agentDir,
-			args: { pattern: "needle", path: ".", literal: true, limit: 5 },
+			args: { pattern: "needle", path: cwd, literal: true, limit: 5 },
 		});
 
 		assert.equal(toolEnd.isError, false);
@@ -46,7 +46,7 @@ test("Sandburg grep searches project files when enabled", async (t) => {
 	}
 });
 
-test("Sandburg grep cannot see masked Pi credentials", async (t) => {
+test("Sandburg grep cannot see private Pi agent state", async (t) => {
 	if (!bwrapUsable()) {
 		t.skip("bwrap is unavailable or cannot create the sandbox in this environment");
 		return;
@@ -66,7 +66,7 @@ test("Sandburg grep cannot see masked Pi credentials", async (t) => {
 			agentDir,
 			args: {
 				pattern: "secret-token-visible-without-sandbox",
-				path: authPath,
+				path: agentDir,
 				literal: true,
 				limit: 5,
 			},

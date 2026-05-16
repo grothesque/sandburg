@@ -158,7 +158,6 @@ test("SDK discovery-only propagation does not add process env ownership", async 
 		const state = await getRuntimeState();
 		assert.equal(envOwnerCount(state, "SANDBURG_ACTIVE"), 1);
 		assert.equal(envOwnerCount(state, "SANDBURG_AGENT_DIR"), 1);
-		assert.equal(envOwnerCount(state, "SANDBURG_AUTH_PATH"), 1);
 
 		const nestedLoader = createNestedLoader({ cwd, agentDir });
 		await nestedLoader.reload();
@@ -170,13 +169,11 @@ test("SDK discovery-only propagation does not add process env ownership", async 
 		);
 		assert.equal(envOwnerCount(state, "SANDBURG_ACTIVE"), 1);
 		assert.equal(envOwnerCount(state, "SANDBURG_AGENT_DIR"), 1);
-		assert.equal(envOwnerCount(state, "SANDBURG_AUTH_PATH"), 1);
 
 		harness.dispose();
 		harness = undefined;
 		assert.equal(envOwnerCount(state, "SANDBURG_ACTIVE"), 0);
 		assert.equal(envOwnerCount(state, "SANDBURG_AGENT_DIR"), 0);
-		assert.equal(envOwnerCount(state, "SANDBURG_AUTH_PATH"), 0);
 	} finally {
 		harness?.dispose();
 		await rmTestDir(dir);

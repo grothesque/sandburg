@@ -28,15 +28,16 @@ async function runToolCall(toolName, args) {
 	return runSandburgToolCall({ cwd, agentDir, toolName, args });
 }
 
-test("Sandburg read denies Pi credentials", async () => {
-	const authPath = join(agentDir, "auth.json");
-	await writeFile(authPath, "sensitive credentials", "utf8");
+test("Sandburg read denies private Pi agent state", async () => {
+	const sessionPath = join(agentDir, "sessions", "session.jsonl");
+	await mkdir(join(agentDir, "sessions"), { recursive: true });
+	await writeFile(sessionPath, "sensitive session data", "utf8");
 
-	const { toolEnd, resultText } = await runToolCall("read", { path: authPath });
+	const { toolEnd, resultText } = await runToolCall("read", { path: sessionPath });
 
 	assert.equal(toolEnd.isError, true);
 	assert.match(resultText, /Access denied/);
-	assert.match(resultText, /protected Pi credential\/cache path/);
+	assert.match(resultText, /private Pi\/Sandburg state/);
 });
 
 test("Sandburg write denies Pi agent directory", async () => {
@@ -49,7 +50,7 @@ test("Sandburg write denies Pi agent directory", async () => {
 
 	assert.equal(toolEnd.isError, true);
 	assert.match(resultText, /Access denied/);
-	assert.match(resultText, /protected Pi state\/cache path/);
+	assert.match(resultText, /private Pi\/Sandburg state/);
 	await assertFileNotExists(blockedPath);
 });
 

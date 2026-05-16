@@ -28,15 +28,26 @@ function executablePath(path) {
 	}
 }
 
+function piCliFromPackageDir(path) {
+	return path ? executablePath(join(path, "dist", "cli.js")) : undefined;
+}
+
 export function piBinPath() {
 	if (process.env.PI_BIN) return executablePath(process.env.PI_BIN);
 
-	for (const dir of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
-		const candidate = executablePath(join(dir, "pi"));
-		if (candidate) return candidate;
-	}
+	// Prefer explicit package locations and the repo-local dev dependency before
+	// PATH. In Sandburg sessions, PATH may start with the managed agent-bin
+	// wrapper directory; sandboxed subprocess tools intentionally cannot see that
+	// private state, so direct test runs should not depend on it.
+	const candidates = [
+		piCliFromPackageDir(process.env.PI_CODING_AGENT_PACKAGE_DIR),
+		piCliFromPackageDir(process.env.PI_PACKAGE_DIR),
+		executablePath(join(REPO_ROOT, "node_modules", ".bin", "pi")),
+		piCliFromPackageDir(join(REPO_ROOT, "node_modules", "@earendil-works", "pi-coding-agent")),
+		...(process.env.PATH ?? "").split(delimiter).filter(Boolean).map((dir) => executablePath(join(dir, "pi"))),
+	];
 
-	return undefined;
+	return candidates.find(Boolean);
 }
 
 export function piSubprocessEnv({ piBin, agentDir, home, extra = {} } = {}) {

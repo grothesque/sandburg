@@ -1,5 +1,5 @@
 // Sandburg helper installers and shell wrapper generation
-import { createGrepToolDefinition, getAgentDir, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createGrepToolDefinition, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "child_process";
 import {
 	accessSync,
@@ -19,26 +19,24 @@ import {
 } from "fs";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "path";
 import {
+	AGENT_BIN_DIR,
+	PI_WRAPPER_PATH,
+	RG_WRAPPER_PATH,
+	SANDBURG_AGENT_DIR_ENV,
+	SANDBURG_PRIVATE_PATHS_ENV,
+	TOOL_SANDBOX_RUNNER_PATH,
+} from "./private-roots.js";
+import {
 	SANDBURG_EXTENSION_PATH_ENV,
 	SANDBURG_PROPAGATED_CHILD_ENV,
 	SANDBURG_REAL_PI_ARGS_JSON_ENV,
 	SANDBURG_REAL_PI_COMMAND_ENV,
 } from "./runtime-state.js";
-
 export const ACTIVE_MARKER = "sandburg-extension-v1";
 const RG_PROBE_MESSAGE = "sandburg-rg-wrapper-probe-hit";
 export const TOOL_SANDBOX_RUNNER_MARKER = "# sandburg-extension-managed: tool-sandbox-runner";
 export const RG_MARKER = "# sandburg-extension-managed: rg-wrapper";
 export const PI_WRAPPER_MARKER = "// sandburg-extension-managed: pi-wrapper";
-export const AGENT_DIR = resolve(getAgentDir());
-export const AGENT_BIN_DIR = join(AGENT_DIR, "bin");
-export const AUTH_JSON_PATH = join(AGENT_DIR, "auth.json");
-export const TOOL_SANDBOX_RUNNER_PATH = join(AGENT_BIN_DIR, "sandburg-tool-sandbox");
-export const RG_WRAPPER_PATH = join(AGENT_BIN_DIR, "rg");
-export const PI_WRAPPER_PATH = join(AGENT_BIN_DIR, "pi");
-export const JITI_CACHE_DIR = "/tmp/jiti";
-const extraRoPathsValue = process.env.SANDBURG_RO_PATHS ?? "";
-export const EXTRA_RO_PATHS = extraRoPathsValue === "" ? [] : extraRoPathsValue.split(":");
 
 type ManagedExecutableSpec = {
 	label: string;
@@ -207,13 +205,27 @@ if (($# == 0)); then
     exit 2
 fi
 
-: "\${SANDBURG_ACTIVE:?sandburg-tool-sandbox: SANDBURG_ACTIVE is not set}"
-: "\${SANDBURG_AGENT_DIR:?sandburg-tool-sandbox: SANDBURG_AGENT_DIR is not set}"
-: "\${SANDBURG_AUTH_PATH:?sandburg-tool-sandbox: SANDBURG_AUTH_PATH is not set}"
+active_marker=${shQuote(ACTIVE_MARKER)}
+agent_dir_env=${shQuote(SANDBURG_AGENT_DIR_ENV)}
+private_paths_env=${shQuote(SANDBURG_PRIVATE_PATHS_ENV)}
 
-agent_dir=$SANDBURG_AGENT_DIR
-auth_path=$SANDBURG_AUTH_PATH
-extra_ro_paths=\${SANDBURG_RO_PATHS:-}
+if [[ \${SANDBURG_ACTIVE:-} != "$active_marker" ]]; then
+    echo "sandburg-tool-sandbox: SANDBURG_ACTIVE is missing or invalid" >&2
+    exit 2
+fi
+
+agent_dir=\${!agent_dir_env:-}
+if [[ -z $agent_dir ]]; then
+    echo "sandburg-tool-sandbox: $agent_dir_env is not set" >&2
+    exit 2
+fi
+
+raw_agent_dir=$agent_dir
+agent_dir=$(realpath -e -- "$raw_agent_dir") || {
+    echo "sandburg-tool-sandbox: cannot canonicalize Pi agent directory: $raw_agent_dir" >&2
+    exit 2
+}
+private_paths=\${!private_paths_env:-}
 pass_vars=\${SANDBURG_PASS_VARS:-}
 
 if [[ ! -d $agent_dir ]]; then
@@ -228,17 +240,105 @@ bwrap_args=(
     --bind / /
     --dev /dev
     --proc /proc
-    --ro-bind "$agent_dir" "$agent_dir"
 )
+hidden_paths=()
 
-# Extra read-only paths are supplied by trusted launch configuration as a
-# colon-separated list. Each path is rebound read-only so agent-facing
-# subprocesses cannot mutate protected Pi state through explicit backing-store
-# aliases. bwrap fails closed if a configured path is missing; invalid entries
-# are rejected by the extension’s setup check before agent tools run.
-IFS=: read -r -a extra_ro_path_array <<< "$extra_ro_paths"
-for path in "\${extra_ro_path_array[@]}"; do
-    bwrap_args+=(--ro-bind "$path" "$path")
+path_within_or_equal() {
+    local path=\${1%/}
+    local root=\${2%/}
+    [[ $root == / || $path == "$root" || $path == "$root"/* ]]
+}
+
+add_hidden_path() {
+    local path=$1
+    local requirement=$2
+    local existing
+    local -a kept_paths=()
+
+    case $requirement in
+        required|optional) ;;
+        *)
+            echo "sandburg-tool-sandbox: internal error: invalid hidden path requirement: $requirement" >&2
+            exit 2
+            ;;
+    esac
+
+    if [[ $requirement == required || -e $path ]]; then
+        path=$(realpath -e -- "$path") || {
+            echo "sandburg-tool-sandbox: cannot canonicalize private path: $path" >&2
+            exit 2
+        }
+    else
+        path=$(realpath -m -- "$path") || {
+            echo "sandburg-tool-sandbox: cannot canonicalize private path: $path" >&2
+            exit 2
+        }
+    fi
+
+    if [[ $path == / ]]; then
+        echo "sandburg-tool-sandbox: refusing to hide / as a private path" >&2
+        exit 2
+    fi
+
+    for existing in "\${hidden_paths[@]}"; do
+        # An existing broader root already hides this path.
+        if path_within_or_equal "$path" "$existing"; then
+            return 0
+        fi
+        # This broader root will hide the existing narrower path.
+        if path_within_or_equal "$existing" "$path"; then
+            continue
+        fi
+        kept_paths+=("$existing")
+    done
+
+    hidden_paths=("\${kept_paths[@]}" "$path")
+}
+
+validate_extra_private_path() {
+    local path=$1
+
+    if [[ -z $path ]]; then
+        echo "sandburg-tool-sandbox: empty path in $private_paths_env" >&2
+        exit 2
+    fi
+
+    if [[ $path != /* ]]; then
+        echo "sandburg-tool-sandbox: path in $private_paths_env is not absolute: $path" >&2
+        exit 2
+    fi
+
+    if [[ ! -d $path ]]; then
+        echo "sandburg-tool-sandbox: path in $private_paths_env is not an existing directory: $path" >&2
+        exit 2
+    fi
+}
+
+# Hide extra private roots before hiding Sandburg's own defaults. This lets a
+# broad configured root subsume narrower defaults cleanly.
+if [[ -n $private_paths ]]; then
+    if [[ $private_paths == :* || $private_paths == *: || $private_paths == *::* ]]; then
+        echo "sandburg-tool-sandbox: empty path in $private_paths_env" >&2
+        exit 2
+    fi
+
+    IFS=: read -r -a private_path_array <<< "$private_paths"
+    for path in "\${private_path_array[@]}"; do
+        validate_extra_private_path "$path"
+        add_hidden_path "$path" required
+    done
+fi
+
+add_hidden_path "$agent_dir/bin" required
+add_hidden_path /tmp/jiti optional
+add_hidden_path "$agent_dir" required
+
+for path in "\${hidden_paths[@]}"; do
+    bwrap_args+=(--tmpfs "$path")
+done
+
+for path in "\${hidden_paths[@]}"; do
+    bwrap_args+=(--remount-ro "$path")
 done
 
 env_args=(--clearenv)
@@ -311,22 +411,12 @@ fi
 env_args+=(
     --setenv SANDBURG_ACTIVE "$SANDBURG_ACTIVE"
     --setenv SANDBURG_TOOL_SANDBOX 1
-    --setenv SANDBURG_AGENT_DIR "$agent_dir"
-    --setenv SANDBURG_AUTH_PATH "$auth_path"
 )
 
-if [[ -n $extra_ro_paths ]]; then
-    env_args+=(--setenv SANDBURG_RO_PATHS "$extra_ro_paths")
-fi
-
-# Mount an empty regular file over auth.json. --ro-bind-data takes an fd, so fd
-# 9 is opened from /dev/null at the end of this command.
 exec bwrap \
     "\${bwrap_args[@]}" \
-    --ro-bind-data 9 "$auth_path" \
-    --tmpfs /tmp/jiti \
     "\${env_args[@]}" \
-    "$@" 9</dev/null
+    "$@"
 `;
 
 export function shQuote(value: string): string {
@@ -352,7 +442,8 @@ tool_sandbox_runner=${shQuote(toolSandboxRunnerPath)}
 # reaches this wrapper. This intentionally writes only to stderr and exits
 # before entering the sandbox or touching the filesystem.
 if [ "\${SANDBURG_RG_WRAPPER_PROBE:-}" = "$active_marker" ]; then
-    echo "$probe_message" >&2
+    script_path=$(readlink -f -- "$0") || script_path=$0
+    echo "$probe_message $script_path" >&2
     exit 86
 fi
 
@@ -696,7 +787,15 @@ export async function verifyPiGrepReachesRgWrapper(): Promise<string[]> {
 		);
 	} catch (error) {
 		const message = errorMessage(error);
-		if (message.includes(RG_PROBE_MESSAGE)) return [];
+		const probeMatch = new RegExp(`${RG_PROBE_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} (.+)`, "m").exec(message);
+		if (probeMatch) {
+			const reportedWrapperPath = probeMatch[1].trim();
+			const expectedWrapperPath = realpathSync(RG_WRAPPER_PATH);
+			if (reportedWrapperPath === expectedWrapperPath) return [];
+			return [
+				`Pi's grep tool reached a stale Sandburg rg wrapper: ${reportedWrapperPath}; expected: ${expectedWrapperPath}`,
+			];
+		}
 		return [
 			`Pi's grep tool invoked rg, but the managed wrapper probe did not respond as expected; wrapper: ${RG_WRAPPER_PATH}; error: ${message}`,
 		];

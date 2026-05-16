@@ -23,6 +23,11 @@ and then runs the Node test files serially
 with `node --test --test-concurrency=1`.
 When run through npm, the local `node_modules/.bin/pi`
 is found before any `pi` on the user’s `PATH`.
+Direct `node --test ...` and `./tests/run` invocations also prefer
+explicit package overrides and the repo-local Pi dev dependency
+before scanning `PATH`.
+This keeps tests independent of Sandburg's managed agent-bin wrapper,
+which lives in private agent state and may be hidden from sandboxed tools.
 
 To test against another Pi installation,
 point the tests at a Pi CLI:
@@ -111,7 +116,7 @@ Guidelines:
 Important caveats:
 
 - Sandburg reads some env-derived constants,
-  such as `PI_CODING_AGENT_DIR` and `SANDBURG_RO_PATHS`,
+  such as `PI_CODING_AGENT_DIR` and `SANDBURG_PRIVATE_PATHS`,
   when its modules load.
   Tests that vary those values need isolation
   and should keep them stable for a harness session.
@@ -131,7 +136,7 @@ Important caveats:
   run `npm ci`,
   or set `PI_BIN`, `PI_CODING_AGENT_PACKAGE_DIR`, or `PI_PACKAGE_DIR`.
 - CLI/RPC tests are skipped:
-  run through `npm test`, set `PI_BIN`, or put `pi` on `PATH`.
+  run `npm ci` if needed, then `npm test`; set `PI_BIN`; or put `pi` on `PATH`.
 - Tool-sandbox tests are skipped or fail:
   check that `bwrap` works on this host.
 - Sandkasten test is skipped:

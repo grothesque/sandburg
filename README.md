@@ -31,9 +31,9 @@ the agent
 
 - cannot use ordinary IP networking from sandboxed tool subprocesses,
 - cannot launch processes that outlast a tool call,
-- cannot access select sensitive Pi data such as `auth.json` credentials and the `/tmp/jiti` cache,
-- cannot write to Pi’s agent directory
-  or to additional protected paths specified by the user.
+- cannot read or mutate Pi’s private agent state through Sandburg-managed tools,
+- cannot read or mutate the `/tmp/jiti` cache
+  or additional private paths specified by the user.
 
 By design Sandburg does not intercept Pi’s user bash commands, such as `! command` and `!! command`.
 They are treated as deliberate user actions and run under whatever restrictions apply to the Pi process itself.
@@ -71,6 +71,10 @@ when Pi is not running.
 With the recommended Sandkasten setup,
 they live only inside Pi’s temporary sandbox.)
 
+Sandburg treats Pi’s agent directory, including `~/.pi/agent/bin`, as private state
+and hides it from sandboxed agent tools. Put user helper commands that the agent
+should run in another visible `PATH` directory, such as `~/bin` or a project-local `bin/`.
+
 ### Installing Sandburg
 
 Install Sandburg as a normal Pi package:
@@ -99,18 +103,20 @@ For expert troubleshooting,
 `SANDBURG_DISABLE_PROPAGATION=pi-wrapper,sdk` disables nested-session propagation mechanisms.
 This weakens subagent protection and should normally be unset.
 
-### Extra read-only paths
+### Extra private paths
 
-Sometimes, the outer sandbox needs to grant the Pi process write access
-to additional paths.
+Sometimes, the outer sandbox needs to grant the Pi process access
+to additional private state paths.
 For example, if `~/.pi/agent/sessions` is a symlink to `~/pi-sessions`,
-then Pi will need write permission for the latter directory.
+then Pi will need access to the latter directory.
 Sandburg’s tool sandbox would not know about this path setup,
-and the tools would therefore have write access there.
-To handle such cases, set `SANDBURG_RO_PATHS` to a colon-separated list
-of additional absolute existing paths that Sandburg should protect from mutation
-by the agent’s tools.
-This variable is meant for this specific use case.
+and the tools would therefore be able to read or mutate it.
+To handle such cases, set `SANDBURG_PRIVATE_PATHS` to a colon-separated list
+of additional absolute existing directories that Sandburg should hide from
+sandboxed subprocess tools and deny to `read`, `write`, and `edit`.
+Sandburg automatically protects its helper bin backing directory,
+even if `~/.pi/agent/bin` is itself a symlink.
+This variable is meant for other private-state aliases.
 
 ### Nested Pi sessions
 
@@ -230,15 +236,16 @@ In addition, Sandburg restricts the built-in tools in the following way:
   before delegating to Pi’s normal implementations.
   `read`, `write`, and `edit` are also made sequential to avoid same-turn
   path-policy races.
-- `ls` and `find` do not need to be reimplemented since they neither read files nor access the network.
-  Sandburg verifies that they remain Pi’s ordinary built-in tools.
+- `ls` and `find` remain Pi’s ordinary built-in tools.
+  They do not read file contents or access the network,
+  but they may still show file and directory names.
 
 For nested sessions,
 Sandburg also installs best-effort propagation hooks as described above.
 On each reload, Sandburg ensures that the core built-in-tool contract is valid.
 If it is not, it disables all tools and warns the user.
 Run `/sandburg` after launch or `/reload` to inspect helper setup,
-protected paths, outer-sandbox signals, active extra extension tools,
+private Pi/Sandburg state roots, outer-sandbox signals, active extra extension tools,
 and nested-session propagation status.
 
 Note: Sandburg does not intercept Pi user bash commands (`!` and `!!`),

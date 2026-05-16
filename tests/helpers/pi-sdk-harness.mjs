@@ -1,6 +1,7 @@
 // Pi SDK/faux-provider harness for Sandburg tests
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
@@ -44,6 +45,21 @@ function piPackageDirCandidates() {
 
 function findPiPackageDir() {
 	return piPackageDirCandidates().find(packageDirLooksUsable);
+}
+
+// Pi's tool-manager captures getBinDir() at import time. Keep that captured
+// directory isolated from the user's real agent dir, then point its bin
+// subdirectory at each serial test session's agent-bin directory.
+const SDK_IMPORT_AGENT_DIR = mkdtempSync(join(tmpdir(), "sandburg-sdk-import-agent-"));
+process.env.PI_CODING_AGENT_DIR = SDK_IMPORT_AGENT_DIR;
+process.on("exit", () => {
+	rmSync(SDK_IMPORT_AGENT_DIR, { recursive: true, force: true });
+});
+
+function pointSdkImportBinDirAt(agentDir) {
+	const capturedBinDir = join(SDK_IMPORT_AGENT_DIR, "bin");
+	rmSync(capturedBinDir, { recursive: true, force: true });
+	symlinkSync(join(agentDir, "bin"), capturedBinDir, "dir");
 }
 
 async function importWithFallback(packageName, fallbackPath, help) {
@@ -126,15 +142,15 @@ function applySessionEnv(agentDir, extraEnv = {}) {
 		"PI_OFFLINE",
 		"SANDBURG_ACTIVE",
 		"SANDBURG_AGENT_DIR",
-		"SANDBURG_AUTH_PATH",
 		"SANDBURG_TOOL_SANDBOX",
-		"SANDBURG_RO_PATHS",
+		"SANDBURG_PRIVATE_PATHS",
 		"SANDBURG_PASS_VARS",
 		...Object.keys(extraEnv),
 	]);
 	const savedEnv = saveEnv(managedKeys);
 
 	for (const key of managedKeys) delete process.env[key];
+	pointSdkImportBinDirAt(agentDir);
 	process.env.PATH = DEFAULT_PATH;
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	process.env.PI_OFFLINE = "1";
