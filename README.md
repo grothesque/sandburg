@@ -13,9 +13,9 @@ Sandkasten is not a strict technical dependency;
 it can be replaced by an equivalent custom sandbox.
 
 Both Sandburg and Sandkasten rely on [bubblewrap](https://github.com/containers/bubblewrap),
-a low-level sandboxing tool used by Flatpak.
-Bubblewrap is itself a thin wrapper around Linux kernel sandboxing primitives,
-so this is a Linux-only solution.
+a low-level sandboxing tool
+that itself is a thin wrapper around Linux kernel sandboxing primitives.
+This is a Linux-only solution.
 
 **Important**: Sandburg alone is not a filesystem read sandbox.
 Without an outer sandbox, Pi and its tools can still read most files visible to Pi,
@@ -31,135 +31,51 @@ the agent
 
 - cannot use ordinary IP networking from sandboxed tool subprocesses,
 - cannot launch processes that outlast a tool call,
-- cannot read or mutate Pi’s private agent state through Sandburg-managed tools,
-- cannot read or mutate the `/tmp/jiti` cache
-  or additional private paths specified by the user.
+- cannot read or mutate Pi’s private agent state,
+- cannot read or mutate additional private state paths configured by the user.
 
 By design Sandburg does not intercept Pi’s user bash commands, such as `! command` and `!! command`.
 They are treated as deliberate user actions and run under whatever restrictions apply to the Pi process itself.
 This gives the user a way to bypass the limitations of the agent’s `bash` tool,
 in a way that is visible (`!`) or hidden (`!!`) to the agent.
 
-The agent-facing description and guidance for the `bash` tool are adjusted
-to inform the agent that it does not have network access.
-In particular, the agent is instructed to
-
-- ask the user to execute commands that require network access,
-  for example using `! command` in Pi,
-- not abandon common workflows just because network access is unavailable
-  to its own tools.
+Sandburg also adjusts the agent-facing `bash` tool description
+to say that tool commands have no network access.
+The agent is instructed to ask the user to run networked commands,
+rather than working around normal workflows.
 
 In practice, this means that the agent can use its tools autonomously,
 while the user retains control over network access and,
 when an outer sandbox is used as described below, file access.
 
-The status of the sandbox, including information about a possible outer sandbox,
-can be viewed with the `/sandburg` command.
+Sandburg reports its state in Pi’s status line.
+Use `/sandburg` for the full status report,
+including information about a possible outer sandbox.
 
-## Installation and setup
+## Installation
 
-Sandburg requires `bwrap`.
-A real ripgrep binary (`rg`) must be available *outside* Pi’s agent bin directory,
-typically `~/.pi/agent/bin`.
-Sandburg installs managed helper wrappers in that directory,
-including `rg` and `sandburg-tool-sandbox`.
-If an unmanaged `rg` is already there
-Sandburg will report a setup violation and disable tools until resolved/reloaded.
-
-(The helper files are recreated automatically and may be removed
-when Pi is not running.
-With the recommended Sandkasten setup,
-they live only inside Pi’s temporary sandbox.)
-
-Sandburg treats Pi’s agent directory, including `~/.pi/agent/bin`, as private state
-and hides it from sandboxed agent tools. Put user helper commands that the agent
-should run in another visible `PATH` directory, such as `~/bin` or a project-local `bin/`.
-
-### Installing Sandburg
-
-Install Sandburg as a normal Pi package:
-```sh
-pi install npm:@grothesque/sandburg
-```
-
-Then start Pi normally.
-On first run, use the `/sandburg` command to verify that Sandburg is active
-and to review the reported sandbox status.
-
-### Environment variables
-
-Agent-launched tool commands run with a mostly cleared environment.
-Common shell variables such as `HOME`, `PATH`, `LANG`,
-and locale variables are forwarded if set.
-To intentionally pass additional trusted variables from the Pi process,
-set `SANDBURG_PASS_VARS` to a colon-separated exact-name allowlist.
-Entries must be non-empty shell variable names and cannot begin with `SANDBURG_`.
-Listed variables that are not exported are omitted.
-
-Sandkasten clears most environment variables by default.
-Pass trusted Sandburg-related variables through Sandkasten with `+V`
-when you want them to affect the Pi process and Sandburg’s tool sandbox.
-To suppress the additional-tool warning for extension tools that you intentionally trust,
-set `SANDBURG_TRUSTED_EXTENSIONS` to a comma-separated list of exact trust keys.
-Run `/sandburg` to see the key reported for each active extension tool,
-then copy the intended key into the environment variable.
-For package extensions the key is Pi's package source string, such as `npm:pi-subagents`;
-for other extensions it is the extension path reported by Pi.
-Trust only suppresses Sandburg's warning for those extension tools;
-it does not sandbox extension code or relax Sandburg's built-in-tool checks.
-Sandburg uses Pi's recorded extension provenance and does not infer package identity from files.
-
-For expert troubleshooting,
-`SANDBURG_DISABLE_PROPAGATION=pi-wrapper,sdk` disables nested-session propagation mechanisms.
-This weakens subagent protection and should normally be unset.
-
-### Extra private paths
-
-Sometimes, the outer sandbox needs to grant the Pi process access
-to additional private state paths.
-For example, if `~/.pi/agent/sessions` is a symlink to `~/pi-sessions`,
-then Pi will need access to the latter directory.
-Sandburg’s tool sandbox would not know about this path setup,
-and the tools would therefore be able to read or mutate it.
-To handle such cases, set `SANDBURG_PRIVATE_PATHS` to a colon-separated list
-of additional absolute existing directories that Sandburg should hide from
-sandboxed subprocess tools and deny to `read`, `write`, and `edit`.
-Sandburg automatically protects its helper bin backing directory,
-even if `~/.pi/agent/bin` is itself a symlink.
-This variable is meant for other private-state aliases.
-
-### Nested Pi sessions
-
-When Sandburg is loaded in a top-level Pi process,
-it also tries to load itself into ordinary nested Pi sessions created by trusted extensions.
-This covers child Pi processes launched as `pi`
-and common in-process sessions created through Pi’s SDK.
-It is best-effort compatibility for non-malicious extensions,
-not a boundary against malicious extension code running in the same Pi process.
-The `/sandburg` command reports whether these propagation mechanisms are active.
-
-Nested-session protection is best-effort.
-It covers common child Pi sessions,
-but some custom extension or SDK setups may need separate review.
-Check `/sandburg` if nested-session behavior matters for your workflow.
-
-## Recommended Sandkasten + Sandburg setup
+### Recommended Sandkasten + Sandburg setup
 
 Consult [Sandkasten documentation](https://github.com/grothesque/sandkasten#readme)
 for details.
+Both Sandkasten and Sandburg require `bwrap`;
+Sandburg also requires a real `rg` outside Pi’s agent bin directory.
+See [Sandburg setup details](#sandburg-setup-details).
 
-In addition to installing Sandburg as described above,
-set up Sandkasten as follows:
+Prepare Sandkasten, then install Sandburg:
 
 1. Install `skn`, the Sandkasten shell script, somewhere in `PATH`.
 2. Configure the basic Sandkasten policy by setting the `SKN_PATH_CHECK`
    and `SKN_RO_BINDS` environment variables.
 3. Verify the basic Sandkasten policy by running `skn true +S`.
-   (`true` is used here because it has no side effects; the command itself is not important.)
-4. From a project directory, simulate running Pi in the sandbox by running Bash instead:
+4. From a project directory, test the sandbox:
    `skn bash +W.`
    Confirm that files are accessible or hidden as desired.
-5. Define a shell alias, script, or shell function for launching Pi
+5. Install Sandburg as a normal Pi package:
+   ```sh
+   pi install npm:@grothesque/sandburg
+   ```
+6. Define a shell alias (or script, or shell function) for launching Pi
    within Sandkasten.
    For example:
    ```sh
@@ -172,19 +88,26 @@ set up Sandkasten as follows:
      +N'
    ```
 
+Replace `/path/to/pi` with the real Pi executable path.
 The alias above exposes `~/.pi/agent/bin`
 as a transient writable overlay.
 The helper files written there by Sandburg are visible only to that Pi process
 while it is running.
 The `+N` option grants network access to Pi itself,
 so that it can communicate with the model provider.
-If `/path/to/pi` or Pi’s package root is not otherwise readable
-inside the outer sandbox, bind the needed path read-only with `SKN_RO_BINDS` or `+R`.
+If Pi’s executable or package root is not otherwise readable inside the outer sandbox,
+bind the needed path read-only with `SKN_RO_BINDS` or `+R`.
+With a typical npm installation,
+making the npm prefix readable covers both Pi
+and globally installed Pi packages such as Sandburg.
 
 ### Usage
 
-The sandboxed Pi can now be invoked simply by running `pi`.
-It accepts all of Pi’s regular command-line arguments.
+Run the sandboxed Pi with `pi`.
+Sandburg status should appear in Pi’s status line;
+if it shows a warning or disabled state, run `/sandburg`.
+
+The alias accepts Pi’s regular command-line arguments.
 For example:
 ```sh
 pi --help
@@ -192,18 +115,16 @@ pi --model some_model
 echo "1 + 1" | pi
 ```
 
-In addition, it accepts special Sandkasten options that begin with `+`
-followed by a capital letter.
-For example:
+It also accepts Sandkasten `+` options:
 ```sh
 pi +S            # Show the sandbox setup, including bwrap invocation.
 pi +W.           # Allow writes to the current directory.
 pi +T. +W build  # Discard cwd writes except in build.
 ```
 
-By default, the Pi process can only read paths listed in `SKN_RO_BINDS`
-and can only write to its agent directory.
-No other write permissions are granted by default.
+By default, apart from Sandkasten’s minimal system/runtime view and private `/tmp`,
+the wrapper exposes the paths in `SKN_RO_BINDS` read-only
+and Pi’s agent directory writable.
 
 Sandkasten and Pi options can be mixed,
 but Sandkasten options must come first:
@@ -223,12 +144,78 @@ To reduce the risk of starting Pi without its outer sandbox,
 keep the npm root `bin` directory out of `PATH`
 and launch Pi only through the Sandkasten wrapper or alias.
 
-For some protection against npm supply-chain attacks,
-install or update Pi (and other npm software) from inside a suitably restricted Sandkasten session,
+Install or update Pi, Sandburg, and other npm software
+from inside a suitably restricted Sandkasten session,
 for example:
 ```sh
 skn bash +N +W ~/.npm +W ~/.npm-global +R ~/.npmrc
 ```
+This provides a degree of protection against npm supply-chain attacks.
+
+### Sandburg setup details
+
+A real ripgrep binary (`rg`), for example from your system ripgrep package,
+must be available *outside* Pi’s agent bin directory,
+typically `~/.pi/agent/bin`.
+Sandburg installs managed helper wrappers in that directory,
+including a `rg` wrapper.
+If an unmanaged `rg` is already there
+Sandburg will report a setup violation and disable tools until resolved/reloaded.
+
+(The helper files are recreated automatically and may be removed
+when Pi is not running.
+With the recommended Sandkasten setup,
+they live only inside Pi’s temporary sandbox.)
+
+Sandburg treats Pi’s agent directory, including `~/.pi/agent/bin`, as private state
+and hides it from sandboxed agent tools. Put user helper commands that the agent
+should run in another visible `PATH` directory, such as `~/bin` or a project-local `bin/`.
+
+#### Environment variables
+
+Agent-launched tool commands run with a mostly cleared environment.
+Common shell variables such as `HOME`, `PATH`, `LANG`,
+and locale variables are forwarded if set.
+To intentionally pass additional trusted variables from the Pi process,
+set `SANDBURG_PASS_VARS` to a colon-separated exact-name allowlist.
+
+Sandkasten clears most environment variables by default.
+Pass trusted Sandburg-related variables through Sandkasten with `+V`
+when you want them to affect the Pi process and Sandburg’s tool sandbox.
+
+To suppress the additional-tool warning for extension tools that you intentionally trust,
+set `SANDBURG_TRUSTED_EXTENSIONS` to a comma-separated list of exact trust keys.
+Run `/sandburg` to see the key reported for each active extension tool,
+then copy the intended key into the environment variable.
+For package extensions the key is Pi's package source string, such as `npm:pi-subagents`;
+for other extensions it is the extension path reported by Pi.
+Trust only suppresses Sandburg's warning for those extension tools;
+it does not sandbox extension code or relax Sandburg's built-in-tool checks.
+
+For expert troubleshooting,
+`SANDBURG_DISABLE_PROPAGATION=pi-wrapper,sdk` disables nested-session propagation mechanisms.
+This weakens subagent protection and should normally be unset.
+
+#### Extra private paths
+
+If the outer sandbox must expose additional Pi-private state paths,
+such as a symlink target for `~/.pi/agent/sessions`,
+list them in `SANDBURG_PRIVATE_PATHS`.
+This colon-separated list names additional absolute existing directories
+that Sandburg should hide from sandboxed subprocess tools
+and deny to `read`, `write`, and `edit`.
+Sandburg automatically protects its helper bin backing directory,
+even if `~/.pi/agent/bin` is itself a symlink.
+This variable is meant for other private-state aliases.
+
+#### Nested Pi sessions (subagents)
+
+Sandburg tries to load itself into ordinary nested Pi sessions,
+including child `pi` processes and SDK-created sessions.
+This is best-effort compatibility,
+not a boundary against malicious extension code.
+Use `/sandburg` to check propagation status,
+and verify subagent behavior if it matters for your workflow.
 
 ## How Sandburg protects Pi tools
 
