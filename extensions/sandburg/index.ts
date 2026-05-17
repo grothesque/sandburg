@@ -8,7 +8,7 @@
  * Extensions are trusted code; this protects against tool misuse and launch/config
  * oversights, not against adversarial same-user code or malicious extensions.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
 	createEditToolDefinition,
@@ -57,6 +57,7 @@ import {
 	getAdditionalActiveToolsWarning,
 	getOuterSandboxStartupWarnings,
 	type SandburgCheckStatus,
+	type SandburgStatus,
 } from "./status.js";
 
 const SANDBURG_TOOL_ENV = {
@@ -72,6 +73,29 @@ const SANDBOXED_BASH_PROMPT_GUIDELINES = [
 	"The `bash` tool runs inside a sandbox with network access disabled. Commands that require network access will fail, including downloading files, fetching from package registries, git fetch/pull, and similar operations.",
 	"This deliberate network blocking should never make you work around recommended workflows. Instead, ask the user to run any needed command and say whether you need to see the output. For example, ask the user to run `cargo add` instead of guessing the appropriate version of the dependency and manually adding it to `Cargo.toml`.",
 ];
+
+type SandburgUiStatus = "active" | "warning" | "disabled";
+
+function setSandburgUiStatus(ctx: ExtensionContext, status: SandburgUiStatus | undefined) {
+	if (!ctx.hasUI) return;
+
+	if (!status) {
+		ctx.ui.setStatus("sandburg", undefined);
+		return;
+	}
+
+	switch (status) {
+		case "active":
+			ctx.ui.setStatus("sandburg", `🟢 Sandburg ${ctx.ui.theme.fg("success", "active")}`);
+			break;
+		case "warning":
+			ctx.ui.setStatus("sandburg", `🟠 Sandburg ${ctx.ui.theme.fg("warning", ctx.ui.theme.inverse(" WARNING "))} check /sandburg`);
+			break;
+		case "disabled":
+			ctx.ui.setStatus("sandburg", `🔴 Sandburg ${ctx.ui.theme.fg("error", ctx.ui.theme.inverse(" DISABLED "))} check /sandburg`);
+			break;
+	}
+}
 
 function setPiWrapperNotPropagating(status: "disabled" | "unavailable", violations: string[]) {
 	const firstPiOnPath = findFirstPiOnPath();
@@ -168,7 +192,8 @@ export default async function (pi: ExtensionAPI) {
 		activeSessionHandle = undefined;
 	};
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", (_event, ctx) => {
+		setSandburgUiStatus(ctx, undefined);
 		releaseActiveSession();
 		releaseProcessEnv();
 	});
@@ -235,6 +260,16 @@ export default async function (pi: ExtensionAPI) {
 		}
 	};
 
+	const updateSandburgUiStatus = (ctx: ExtensionContext, status?: SandburgStatus) => {
+		if (toolsDisabledUntilReload || !sandburgStatus.valid) {
+			setSandburgUiStatus(ctx, "disabled");
+			return;
+		}
+
+		const currentStatus = status ?? buildSandburgStatus(pi, sandburgStatus, toolsDisabledUntilReload);
+		setSandburgUiStatus(ctx, currentStatus.severity === "warning" ? "warning" : "active");
+	};
+
 	// This is intentionally a load/reload-time warning, not a hard setup failure
 	// and not a per-tool-call gate. Under Pi’s current same-name tool
 	// de-duplication semantics, later-loaded extensions cannot replace
@@ -272,6 +307,7 @@ export default async function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			checkSandburg();
 			const status = buildSandburgStatus(pi, sandburgStatus, toolsDisabledUntilReload);
+			updateSandburgUiStatus(ctx, status);
 			if (ctx.hasUI) ctx.ui.notify(status.text, status.severity === "success" ? "info" : status.severity);
 			else console.log(status.text);
 		},
@@ -282,6 +318,7 @@ export default async function (pi: ExtensionAPI) {
 		claimProcessEnv();
 		registerSandburgTools(ctx.cwd);
 		checkSandburg((message) => ctx.ui.notify(message, "warning"));
+		updateSandburgUiStatus(ctx);
 		warnAboutAdditionalActiveTools((message) => ctx.ui.notify(message, "warning"));
 		warnAboutPiWrapperPropagation((message) => ctx.ui.notify(message, "warning"));
 		warnAboutSdkPropagation((message) => ctx.ui.notify(message, "warning"));
