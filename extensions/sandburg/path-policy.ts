@@ -131,22 +131,37 @@ export function registerGuardedReadToolDefinition(
 	});
 }
 
-export function registerGuardedMutationToolDefinition(
+function guardMutationPath(path: string, localCwd: string) {
+	const rawPath = resolveToCwdLikePi(path, localCwd);
+	const targetPath = canonicalPathForPolicy(rawPath);
+	if (isMutationProtectedPath(rawPath, targetPath)) {
+		deny(`Access denied: "${path}" is a protected Pi state/cache path.`);
+	}
+}
+
+export function registerGuardedWriteToolDefinition(
 	pi: ExtensionAPI,
-	definition: ReturnType<typeof createWriteToolDefinition> | ReturnType<typeof createEditToolDefinition>,
+	definition: ReturnType<typeof createWriteToolDefinition>,
 	localCwd: string,
 ) {
 	pi.registerTool({
 		...definition,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			if (typeof params?.path === "string") {
-				const rawPath = resolveToCwdLikePi(params.path, localCwd);
-				const targetPath = canonicalPathForPolicy(rawPath);
-				if (isMutationProtectedPath(rawPath, targetPath)) {
-					deny(`Access denied: "${params.path}" is a protected Pi state/cache path.`);
-				}
-			}
+			guardMutationPath(params.path, localCwd);
+			return definition.execute(toolCallId, params, signal, onUpdate, ctx);
+		},
+	});
+}
 
+export function registerGuardedEditToolDefinition(
+	pi: ExtensionAPI,
+	definition: ReturnType<typeof createEditToolDefinition>,
+	localCwd: string,
+) {
+	pi.registerTool({
+		...definition,
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			guardMutationPath(params.path, localCwd);
 			return definition.execute(toolCallId, params, signal, onUpdate, ctx);
 		},
 	});

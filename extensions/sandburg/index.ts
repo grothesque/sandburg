@@ -24,7 +24,11 @@ import {
 	shQuote,
 	verifyPiGrepReachesRgWrapper,
 } from "./helpers.js";
-import { registerGuardedMutationToolDefinition, registerGuardedReadToolDefinition } from "./path-policy.js";
+import {
+	registerGuardedEditToolDefinition,
+	registerGuardedReadToolDefinition,
+	registerGuardedWriteToolDefinition,
+} from "./path-policy.js";
 import {
 	buildSandburgStatus,
 	checkSandburgSetup,
@@ -102,8 +106,8 @@ export default async function (pi: ExtensionAPI) {
 
 		pi.registerTool(sandburgBashDefinition);
 		registerGuardedReadToolDefinition(pi, readDefinition, localCwd);
-		registerGuardedMutationToolDefinition(pi, writeDefinition, localCwd);
-		registerGuardedMutationToolDefinition(pi, editDefinition, localCwd);
+		registerGuardedWriteToolDefinition(pi, writeDefinition, localCwd);
+		registerGuardedEditToolDefinition(pi, editDefinition, localCwd);
 	};
 
 	const disableToolsUntilReload = (notify?: (message: string) => void) => {
@@ -140,7 +144,7 @@ export default async function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			checkSandburg();
 			const status = buildSandburgStatus(pi, sandburgStatus, toolsDisabledUntilReload);
-			if (ctx.hasUI) ctx.ui.notify(status.text, status.severity);
+			if (ctx.hasUI) ctx.ui.notify(status.text, status.severity === "success" ? "info" : status.severity);
 			else console.log(status.text);
 		},
 	});

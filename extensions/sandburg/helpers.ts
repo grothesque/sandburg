@@ -1,5 +1,5 @@
 // Sandburg helper installers and shell wrapper generation
-import { createGrepToolDefinition, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { createGrepToolDefinition, getAgentDir, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "child_process";
 import {
 	accessSync,
@@ -409,6 +409,56 @@ export function checkSandburgHelpers(): string[] {
 	return [...violations, ...specs.flatMap((spec) => checkManagedExecutable(spec))];
 }
 
+function probeExtensionContext(cwd: string): ExtensionContext {
+	return {
+		ui: {
+			select: async () => undefined,
+			confirm: async () => false,
+			input: async () => undefined,
+			notify: () => {},
+			onTerminalInput: () => () => {},
+			setStatus: () => {},
+			setWorkingMessage: () => {},
+			setWorkingVisible: () => {},
+			setWorkingIndicator: () => {},
+			setHiddenThinkingLabel: () => {},
+			setWidget: () => {},
+			setFooter: () => {},
+			setHeader: () => {},
+			setTitle: () => {},
+			custom: async () => {
+				throw new Error("Sandburg grep-wrapper probe does not support interactive UI.");
+			},
+			pasteToEditor: () => {},
+			setEditorText: () => {},
+			getEditorText: () => "",
+			editor: async () => undefined,
+			addAutocompleteProvider: () => {},
+			setEditorComponent: () => {},
+			getEditorComponent: () => undefined,
+			theme: undefined as never,
+			getAllThemes: () => [],
+			getTheme: () => undefined,
+			setTheme: () => ({ success: false, error: "Sandburg grep-wrapper probe does not support themes." }),
+			getToolsExpanded: () => false,
+			setToolsExpanded: () => {},
+		},
+		hasUI: false,
+		cwd,
+		sessionManager: undefined as never,
+		modelRegistry: undefined as never,
+		model: undefined,
+		isIdle: () => true,
+		signal: undefined,
+		abort: () => {},
+		hasPendingMessages: () => false,
+		shutdown: () => {},
+		getContextUsage: () => undefined,
+		compact: () => {},
+		getSystemPrompt: () => "",
+	};
+}
+
 // Probe Pi's public grep tool factory rather than guessing lookup behavior.
 // The generated rg wrapper exits early with a distinctive stderr message when
 // this env var is set, so the probe does not write to disk or enter the tool sandbox.
@@ -426,7 +476,7 @@ export async function verifyPiGrepReachesRgWrapper(): Promise<string[]> {
 			},
 			undefined,
 			undefined,
-			undefined,
+			probeExtensionContext(AGENT_BIN_DIR),
 		);
 	} catch (error) {
 		const message = errorMessage(error);
