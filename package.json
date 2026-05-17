@@ -10,6 +10,9 @@
         "url": "git+https://github.com/grothesque/sandburg.git"
     },
     "homepage": "https://github.com/grothesque/sandburg#readme",
+    "publishConfig": {
+        "access": "public"
+    },
     "keywords": [
         "pi-package",
         "pi-extension",
