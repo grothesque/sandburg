@@ -176,6 +176,8 @@ should run in another visible `PATH` directory, such as `~/bin` or a project-loc
 Agent-launched tool commands run with a mostly cleared environment.
 Common shell variables such as `HOME`, `PATH`, `LANG`,
 and locale variables are forwarded if set.
+To support nested Sandkasten use from the agent `bash` tool,
+Sandburg also forwards `SKN_PATH_CHECK` and `SKN_RO_BINDS` when they are set.
 To intentionally pass additional trusted variables from the Pi process,
 set `SANDBURG_PASS_VARS` to a colon-separated exact-name allowlist.
 

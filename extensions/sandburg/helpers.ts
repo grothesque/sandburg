@@ -393,6 +393,12 @@ for name in "\${!LC_@}"; do
     pass_env_if_set "$name"
 done
 
+# Preserve Sandkasten nested-sandbox path policy through Sandburg's
+# additional tool sandbox.
+for name in SKN_PATH_CHECK SKN_RO_BINDS; do
+    pass_env_if_set "$name"
+done
+
 # Trusted launch configuration may pass additional exact-name environment
 # variables. Missing listed variables are omitted, like missing default
 # variables above.

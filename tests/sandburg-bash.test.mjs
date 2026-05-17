@@ -118,3 +118,23 @@ test("Sandburg bash cannot read SANDBURG_PRIVATE_PATHS", async (t) => {
 	assert.doesNotMatch(bashResult.resultText, new RegExp(secret));
 	assert.match(bashResult.resultText, /private-paths:unset:secret::end/);
 });
+
+test("Sandburg bash forwards Sandkasten path-policy variables by default", async (t) => {
+	if (!bwrapUsable()) {
+		t.skip("bwrap is unavailable or cannot create the sandbox in this environment");
+		return;
+	}
+
+	const bashResult = await runBashToolCall({
+		dirName: "sandburg-bash-skn-env",
+		command: "printf 'check:%s\nbinds:%s\n' \"${SKN_PATH_CHECK-unset}\" \"${SKN_RO_BINDS-unset}\"",
+		env: ({ cwd }) => ({
+			SKN_PATH_CHECK: "true",
+			SKN_RO_BINDS: cwd,
+		}),
+	});
+
+	assert.equal(bashResult.toolEnd.isError, false);
+	assert.match(bashResult.resultText, /check:true/);
+	assert.match(bashResult.resultText, /binds:.*\/project/);
+});
