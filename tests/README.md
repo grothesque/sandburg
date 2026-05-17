@@ -5,37 +5,44 @@ without using Pi’s TUI, tmux, real model providers, API keys, or the network.
 
 ## Running
 
+Install development dependencies first:
+
+```sh
+npm ci
+```
+
 Run the full suite from the repository root:
 
 ```sh
-./tests/run
+npm test
 ```
 
-`tests/run` checks its shell syntax
+`npm test` runs `./tests/run`.
+The runner checks its shell syntax
 and then runs the Node test files serially
 with `node --test --test-concurrency=1`.
+When run through npm, the local `node_modules/.bin/pi`
+is found before any `pi` on the user’s `PATH`.
 
-Most tests use the Pi SDK.
-If Pi is not installed as a local dependency
-and is not discoverable on `PATH`,
+To test against another Pi installation,
 point the tests at a Pi CLI:
 
 ```sh
-PI_BIN=/path/to/pi ./tests/run
+PI_BIN=/path/to/pi npm test
 ```
 
 Package-layout overrides are also supported when needed:
 
 ```sh
-PI_CODING_AGENT_PACKAGE_DIR=/path/to/@earendil-works/pi-coding-agent ./tests/run
-PI_PACKAGE_DIR=/path/to/@earendil-works/pi-coding-agent ./tests/run
+PI_CODING_AGENT_PACKAGE_DIR=/path/to/@earendil-works/pi-coding-agent npm test
+PI_PACKAGE_DIR=/path/to/@earendil-works/pi-coding-agent npm test
 ```
 
 The optional Sandkasten integration test discovers `skn`
 from `SKN_BIN` or `PATH`:
 
 ```sh
-SKN_BIN=/path/to/skn PI_BIN=/path/to/pi ./tests/run
+SKN_BIN=/path/to/skn PI_BIN=/path/to/pi npm test
 ```
 
 Some tests skip when host prerequisites are unavailable or unusable:
@@ -121,11 +128,10 @@ Important caveats:
 ## Troubleshooting
 
 - `Cannot import @earendil-works/pi-coding-agent`:
-  install local dependencies,
-  put `pi` on `PATH`,
+  run `npm ci`,
   or set `PI_BIN`, `PI_CODING_AGENT_PACKAGE_DIR`, or `PI_PACKAGE_DIR`.
 - CLI/RPC tests are skipped:
-  set `PI_BIN` or put `pi` on `PATH`.
+  run through `npm test`, set `PI_BIN`, or put `pi` on `PATH`.
 - Tool-sandbox tests are skipped or fail:
   check that `bwrap` works on this host.
 - Sandkasten test is skipped:

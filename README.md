@@ -241,3 +241,21 @@ sandbox escape.
 
 Sandburg does not constrain agent tools beyond the built-in ones.
 The `/sandburg` command lists any such additional tools that are active.
+
+## Development
+
+Install dependencies and run checks with:
+```sh
+npm ci
+npm run check
+npm test
+```
+
+For local development or one-off testing,
+load Sandburg explicitly from the working tree:
+```sh
+pi -e .
+pi -e extensions/sandburg/index.ts
+```
+
+See `tests/README.md` for test-suite details.

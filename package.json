@@ -27,10 +27,24 @@
             "./extensions/sandburg/index.ts"
         ]
     },
+    "scripts": {
+        "check": "npm run check:types && npm run check:shell && npm run check:js",
+        "check:types": "tsc -p tsconfig.json --noEmit",
+        "check:shell": "sh -n tests/run",
+        "check:js": "find tests -name '*.mjs' -exec node --check {} \\;",
+        "test": "./tests/run"
+    },
     "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*"
     },
     "engines": {
         "node": ">=20.6.0"
+    },
+    "devDependencies": {
+        "@earendil-works/pi-ai": "^0.74.0",
+        "@earendil-works/pi-coding-agent": "^0.74.0",
+        "@types/node": "^24.3.0",
+        "typebox": "^1.1.24",
+        "typescript": "^5.9.2"
     }
 }
