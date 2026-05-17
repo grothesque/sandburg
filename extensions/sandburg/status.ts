@@ -1,6 +1,7 @@
 // Sandburg status report generation for the /sandburg command
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import {
 	ACTIVE_MARKER,
 	checkBubblewrapUsable,
@@ -181,6 +182,26 @@ export type OuterSandboxStatus = {
 	broadHostExposures: string[];
 };
 
+function getProbableReadmePath(): string | undefined {
+	try {
+		const path = fileURLToPath(new URL("../../README.md", import.meta.url));
+		return existsSync(path) ? path : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function getOuterSandboxMissingWarning(): string {
+	const readmePath = getProbableReadmePath();
+	return [
+		"No outer sandbox for the Pi process detected.",
+		"  For effective protection, Sandburg must run inside Sandkasten or an equivalent outer sandbox.",
+		readmePath
+			? `  Consult the documentation:\n    ${readmePath}`
+			: "  Consult the documentation for Sandburg setup details.",
+	].join("\n");
+}
+
 function describeToolSource(tool: ToolInfo): string {
 	const path = tool.sourceInfo.path;
 	switch (tool.sourceInfo.source) {
@@ -307,8 +328,7 @@ export function getOuterSandboxStatus(): OuterSandboxStatus {
 
 export function getOuterSandboxStartupWarnings(outerSandbox = getOuterSandboxStatus()): string[] {
 	return [
-		!outerSandbox.namespaceSandboxDetected &&
-			"No outer sandbox for the Pi process detected. Sandburg protects built-in tools, not arbitrary extension code or the Pi process itself. Run /sandburg for details.",
+		!outerSandbox.namespaceSandboxDetected && getOuterSandboxMissingWarning(),
 		outerSandbox.broadHostExposures.length > 0 && "Broad host exposure detected. Run /sandburg for details.",
 	].filter(Boolean) as string[];
 }
@@ -367,8 +387,7 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 			`Nested Pi wrapper propagation is unavailable: ${piWrapper.violations.join("; ")}`,
 		sdkPropagation.status === "unavailable" &&
 			`Nested Pi SDK session propagation is unavailable: ${sdkPropagation.violations.join("; ")}`,
-		!outerSandbox.namespaceSandboxDetected &&
-			"No outer sandbox for the Pi process detected. Sandburg protects built-in tools, not arbitrary extension code or the Pi process itself.",
+		!outerSandbox.namespaceSandboxDetected && getOuterSandboxMissingWarning(),
 		outerSandbox.broadHostExposures.length > 0 && "Broad host exposure detected.",
 	].filter(Boolean) as string[];
 	const privateRoots = PRIVATE_ROOTS;
