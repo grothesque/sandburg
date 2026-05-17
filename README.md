@@ -61,23 +61,26 @@ can be viewed with the `/sandburg` command.
 Sandburg requires `bwrap`.
 A real ripgrep binary (`rg`) must be available *outside* Pi’s agent bin directory,
 typically `~/.pi/agent/bin`.
-Sandburg needs to write a ripgrep wrapper shell script named `rg` in that directory,
-along with a second shell script named `sandburg-tool-sandbox`.
-If an `rg` downloaded by Pi is already there
+Sandburg installs managed helper wrappers in that directory,
+including `rg` and `sandburg-tool-sandbox`.
+If an unmanaged `rg` is already there
 Sandburg will report a setup violation and disable tools until resolved/reloaded.
 
-(These two helper scripts are recreated automatically and may be removed
+(The helper files are recreated automatically and may be removed
 when Pi is not running.
 With the recommended Sandkasten setup,
 they live only inside Pi’s temporary sandbox.)
 
 ### Installing Sandburg
 
-Copy or link the extension directory `sandburg` (the one containing `index.ts`)
-into a Pi extension directory, for example `$HOME/.pi/agent/extensions`.
+Install Sandburg as a normal Pi package:
+```sh
+pi install npm:@grothesque/sandburg
+```
 
-It is highly recommended to launch Pi within an outer `bwrap` sandbox.
-The recommended setup using Sandkasten is described below.
+Then start Pi normally.
+On first run, use the `/sandburg` command to verify that Sandburg is active
+and to review the reported sandbox status.
 
 ### Environment variables
 
@@ -122,8 +125,13 @@ set up Sandkasten as follows:
    within Sandkasten.
    For example:
    ```sh
-   pi_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-   alias pi='skn /path/to/pi +W "$pi_agent_dir" +T "$pi_agent_dir/bin" +N'
+   pi_agent_dir="$HOME/.pi/agent"
+   mkdir -p "$pi_agent_dir/bin"
+
+   alias pi='skn /path/to/pi \
+     +W "$pi_agent_dir" \
+     +T "$pi_agent_dir/bin" \
+     +N'
    ```
 
 The alias above exposes `~/.pi/agent/bin`
@@ -132,6 +140,8 @@ The helper files written there by Sandburg are visible only to that Pi process
 while it is running.
 The `+N` option grants network access to Pi itself,
 so that it can communicate with the model provider.
+If `/path/to/pi` or Pi’s package root is not otherwise readable
+inside the outer sandbox, bind the needed path read-only with `SKN_RO_BINDS` or `+R`.
 
 ### Usage
 
@@ -148,9 +158,9 @@ In addition, it accepts special Sandkasten options that begin with `+`
 followed by a capital letter.
 For example:
 ```sh
-pi +S              # Show the sandbox setup, including the full bwrap command line, then exit.
-pi +W.             # Launch Pi with write access to the current directory.
-pi +T. +W./build   # Expose cwd as a tmp-overlay; allow writes to existing directory ./build.
+pi +S            # Show the sandbox setup, including bwrap invocation.
+pi +W.           # Allow writes to the current directory.
+pi +T. +W build  # Discard cwd writes except in build.
 ```
 
 By default, the Pi process can only read paths listed in `SKN_RO_BINDS`
@@ -166,7 +176,6 @@ pi +W. --model other_model
 Despite that restriction, shell aliases can still include Pi options
 by using Sandkasten’s special `+A` option:
 ```sh
-# This uses the basic pi alias defined above.
 alias pi-other='pi +A --model +A other_model'
 ```
 
@@ -180,7 +189,7 @@ For some protection against npm supply-chain attacks,
 install or update Pi (and other npm software) from inside a suitably restricted Sandkasten session,
 for example:
 ```sh
-skn bash +N +W ~/.npm +W ~/.npmroot +R ~/.npmrc
+skn bash +N +W ~/.npm +W ~/.npm-global +R ~/.npmrc
 ```
 
 ## How Sandburg protects Pi tools

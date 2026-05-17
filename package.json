@@ -1,0 +1,36 @@
+{
+    "name": "@grothesque/sandburg",
+    "version": "0.1.0",
+    "description": "Pi sandbox balancing security, usability and agent autonomy; for Linux",
+    "type": "module",
+    "license": "MIT",
+    "author": "Christoph Groth",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/grothesque/sandburg.git"
+    },
+    "homepage": "https://github.com/grothesque/sandburg#readme",
+    "keywords": [
+        "pi-package",
+        "pi-extension",
+        "sandbox",
+        "coding-agent"
+    ],
+    "files": [
+        "extensions/sandburg/**",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+    ],
+    "pi": {
+        "extensions": [
+            "./extensions/sandburg/index.ts"
+        ]
+    },
+    "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*"
+    },
+    "engines": {
+        "node": ">=20.6.0"
+    }
+}
