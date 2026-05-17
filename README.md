@@ -99,6 +99,16 @@ Listed variables that are not exported are omitted.
 Sandkasten clears most environment variables by default.
 Pass trusted Sandburg-related variables through Sandkasten with `+V`
 when you want them to affect the Pi process and Sandburg’s tool sandbox.
+To suppress the additional-tool warning for extension tools that you intentionally trust,
+set `SANDBURG_TRUSTED_EXTENSIONS` to a comma-separated list of exact trust keys.
+Run `/sandburg` to see the key reported for each active extension tool,
+then copy the intended key into the environment variable.
+For package extensions the key is Pi's package source string, such as `npm:pi-subagents`;
+for other extensions it is the extension path reported by Pi.
+Trust only suppresses Sandburg's warning for those extension tools;
+it does not sandbox extension code or relax Sandburg's built-in-tool checks.
+Sandburg uses Pi's recorded extension provenance and does not infer package identity from files.
+
 For expert troubleshooting,
 `SANDBURG_DISABLE_PROPAGATION=pi-wrapper,sdk` disables nested-session propagation mechanisms.
 This weakens subagent protection and should normally be unset.

@@ -40,6 +40,7 @@ const VIRTUAL_FILESYSTEM_TYPES = new Set([
 	"tracefs",
 ]);
 
+const SANDBURG_TRUSTED_EXTENSIONS_ENV = "SANDBURG_TRUSTED_EXTENSIONS";
 const SANDBURG_TOOL_NAMES = ["bash", "grep", "read", "write", "edit"];
 const SANDBURG_REDEFINED_TOOL_NAMES = ["bash", "read", "write", "edit"];
 const BUILTIN_DISCOVERY_TOOL_NAMES = ["find", "ls"];
@@ -196,26 +197,82 @@ function describeToolSource(tool: ToolInfo): string {
 	}
 }
 
+function describeAdditionalToolRecord(record: AdditionalActiveToolRecord): string {
+	return `${record.name} — ${record.trust.key}`;
+}
+
+function appendAdditionalToolRecords(lines: string[], label: string, records: AdditionalActiveToolRecord[]) {
+	if (records.length === 0) {
+		lines.push(`- ${label}: (none)`);
+		return;
+	}
+
+	lines.push(`- ${label}:`);
+	for (const record of records) lines.push(`  - ${describeAdditionalToolRecord(record)}`);
+}
+
 function toolByName(pi: ExtensionAPI): Map<string, ToolInfo> {
 	return new Map(pi.getAllTools().map((tool) => [tool.name, tool]));
 }
 
-export function getAdditionalActiveToolNames(pi: ExtensionAPI): string[] {
-	const allTools = pi.getAllTools();
-	const enabledToolNames = new Set(pi.getActiveTools());
-	return sortedToolNames(
-		allTools.filter((tool) => enabledToolNames.has(tool.name) && !KNOWN_TOOL_NAME_SET.has(tool.name)).map((tool) => tool.name),
+type ExtensionToolTrust = {
+	key: string;
+	trusted: boolean;
+};
+
+function parseTrustedExtensionKeys(value = process.env[SANDBURG_TRUSTED_EXTENSIONS_ENV]): Set<string> {
+	return new Set(
+		(value ?? "")
+			.split(",")
+			.map((entry) => entry.trim())
+			.filter(Boolean),
 	);
 }
 
+function getExtensionToolTrust(sourceInfo: ToolInfo["sourceInfo"], trustedKeys: Set<string>): ExtensionToolTrust {
+	const key = sourceInfo.origin === "package" ? sourceInfo.source : sourceInfo.path;
+	return { key, trusted: trustedKeys.has(key) };
+}
+
+export type AdditionalActiveToolRecord = {
+	name: string;
+	sourceInfo: ToolInfo["sourceInfo"];
+	trust: ExtensionToolTrust;
+};
+
+export function getAdditionalActiveToolRecords(pi: ExtensionAPI): AdditionalActiveToolRecord[] {
+	const allTools = pi.getAllTools();
+	const enabledToolNames = new Set(pi.getActiveTools());
+	const trustedKeys = parseTrustedExtensionKeys();
+	const records = allTools
+		.filter((tool) => enabledToolNames.has(tool.name) && !KNOWN_TOOL_NAME_SET.has(tool.name))
+		.map((tool) => ({
+			name: tool.name,
+			sourceInfo: tool.sourceInfo,
+			trust: getExtensionToolTrust(tool.sourceInfo, trustedKeys),
+		}));
+	const order = sortedToolNames(records.map((record) => record.name));
+	const orderIndex = new Map(order.map((name, index) => [name, index]));
+	return records.sort((a, b) => (orderIndex.get(a.name) ?? 0) - (orderIndex.get(b.name) ?? 0));
+}
+
+export function getAdditionalActiveToolNames(pi: ExtensionAPI): string[] {
+	return getAdditionalActiveToolRecords(pi).map((record) => record.name);
+}
+
+export function getUntrustedAdditionalActiveToolRecords(pi: ExtensionAPI): AdditionalActiveToolRecord[] {
+	return getAdditionalActiveToolRecords(pi).filter((record) => !record.trust.trusted);
+}
+
 export function getAdditionalActiveToolsWarning(pi: ExtensionAPI): string | undefined {
-	const names = getAdditionalActiveToolNames(pi);
-	if (names.length === 0) return undefined;
+	const records = getUntrustedAdditionalActiveToolRecords(pi);
+	if (records.length === 0) return undefined;
 	return [
 		"Additional tools are active outside Sandburg's built-in-tool sandbox.",
-		"  Extension tools are assumed trusted and remain enabled.",
-		"  Active tools:",
-		...names.map((name) => `  - ${name}`),
+		"  Extension tools run as trusted same-process code and remain enabled.",
+		`  Set ${SANDBURG_TRUSTED_EXTENSIONS_ENV} to suppress this warning for intentionally trusted extensions.`,
+		"  Active untrusted tools:",
+		...records.map((record) => `  - ${record.name}`),
 	].join("\n");
 }
 
@@ -288,6 +345,10 @@ export function checkSandburgSetup(pi: ExtensionAPI, setupViolations: string[] =
 export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandburgSetup(pi), toolsDisabledUntilReload = false): SandburgStatus {
 	const outerSandbox = getOuterSandboxStatus();
 	const additionalActiveToolsWarning = getAdditionalActiveToolsWarning(pi);
+	const additionalActiveToolRecords = getAdditionalActiveToolRecords(pi);
+	const trustedAdditionalTools = additionalActiveToolRecords.filter((record) => record.trust.trusted);
+	const untrustedAdditionalTools = additionalActiveToolRecords.filter((record) => !record.trust.trusted);
+	const trustedExtensionKeys = [...parseTrustedExtensionKeys()].sort();
 	const runtimeState = getSandburgRuntimeState();
 	const unknownDisableTokens = runtimeState.propagationDisable.unknownTokens;
 	const disabledPropagation = [...runtimeState.propagationDisable.disabled].sort();
@@ -341,6 +402,13 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		"  (`ls` and `find` may still show file and directory names.)",
 		...privateRoots.map((path) => `  - ${path}`),
 	);
+
+	if (additionalActiveToolRecords.length > 0 || trustedExtensionKeys.length > 0) {
+		lines.push("", "Extension tools outside Sandburg's built-in-tool sandbox");
+		appendAdditionalToolRecords(lines, "trusted", trustedAdditionalTools);
+		appendAdditionalToolRecords(lines, "untrusted", untrustedAdditionalTools);
+		appendPathList(lines, `trusted extension keys (${SANDBURG_TRUSTED_EXTENSIONS_ENV})`, trustedExtensionKeys);
+	}
 
 	lines.push(
 		"",

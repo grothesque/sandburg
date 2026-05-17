@@ -274,7 +274,7 @@ test("Pi RPC Sandburg status reports runtime-added active tools", async (t) => {
 		assert.doesNotMatch(statusNotifications[0].message, new RegExp(runtimeToolName));
 		assert.match(statusNotifications[1].message, new RegExp(runtimeToolName));
 		assert.match(statusNotifications[1].message, /Additional tools are active outside Sandburg's built-in-tool sandbox/);
-		assert.match(statusNotifications[1].message, /Extension tools are assumed trusted and remain enabled/);
+		assert.match(statusNotifications[1].message, /Extension tools run as trusted same-process code and remain enabled/);
 	} finally {
 		await rmTestDir(dir);
 	}
