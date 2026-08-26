@@ -113,7 +113,7 @@ test("Pi RPC mode exposes and runs the Sandburg status command", async (t) => {
 		assert.match(statusNotify.message, /Agent tool restrictions/);
 		assert.match(statusNotify.message, /network disabled/);
 		assert.match(statusNotify.message, /Nested Pi propagation/);
-		assert.match(statusNotify.message, /argv\[1\] propagation: not enabled/);
+		assert.match(statusNotify.message, /downstream pi: resolved from PATH when the wrapper runs/);
 		assert.doesNotMatch(statusNotify.message, /Additional tools are active/);
 	} finally {
 		await rmTestDir(dir);

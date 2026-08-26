@@ -30,14 +30,14 @@ function restoreEnv(savedEnv) {
 test("Sandburg parses propagation disable tokens", async () => {
 	const runtime = await importRuntimeState();
 
-	const parsed = runtime.parsePropagationDisableTokens(" pi-wrapper, sdk, unknown-token, argv1 ");
-	assert.deepEqual(sortedSet(parsed.tokens), ["argv1", "pi-wrapper", "sdk"]);
-	assert.deepEqual(sortedSet(parsed.disabled), ["argv1", "pi-wrapper", "sdk"]);
+	const parsed = runtime.parsePropagationDisableTokens(" pi-wrapper, sdk, unknown-token ");
+	assert.deepEqual(sortedSet(parsed.tokens), ["pi-wrapper", "sdk"]);
+	assert.deepEqual(sortedSet(parsed.disabled), ["pi-wrapper", "sdk"]);
 	assert.deepEqual(parsed.unknownTokens, ["unknown-token"]);
 
 	const all = runtime.parsePropagationDisableTokens("all");
 	assert.deepEqual(sortedSet(all.tokens), ["all"]);
-	assert.deepEqual(sortedSet(all.disabled), ["argv1", "pi-wrapper", "sdk"]);
+	assert.deepEqual(sortedSet(all.disabled), ["pi-wrapper", "sdk"]);
 	assert.deepEqual(all.unknownTokens, []);
 });
 

@@ -26,12 +26,7 @@ import {
 	SANDBURG_PRIVATE_PATHS_ENV,
 	TOOL_SANDBOX_RUNNER_PATH,
 } from "./private-roots.js";
-import {
-	SANDBURG_EXTENSION_PATH_ENV,
-	SANDBURG_PROPAGATED_CHILD_ENV,
-	SANDBURG_REAL_PI_ARGS_JSON_ENV,
-	SANDBURG_REAL_PI_COMMAND_ENV,
-} from "./runtime-state.js";
+import { SANDBURG_EXTENSION_PATH_ENV } from "./runtime-state.js";
 export const ACTIVE_MARKER = "sandburg-extension-v1";
 const RG_PROBE_MESSAGE = "sandburg-rg-wrapper-probe-hit";
 export const TOOL_SANDBOX_RUNNER_MARKER = "# sandburg-extension-managed: tool-sandbox-runner";
@@ -65,26 +60,13 @@ const path = require("node:path");
 const ACTIVE_ENV = "SANDBURG_ACTIVE";
 const ACTIVE_MARKER = ${JSON.stringify(ACTIVE_MARKER)};
 const WRAPPER_MARKER = ${JSON.stringify(PI_WRAPPER_MARKER)};
-const REAL_PI_COMMAND_ENV = ${JSON.stringify(SANDBURG_REAL_PI_COMMAND_ENV)};
-const REAL_PI_ARGS_JSON_ENV = ${JSON.stringify(SANDBURG_REAL_PI_ARGS_JSON_ENV)};
 const SANDBURG_EXTENSION_ENV = ${JSON.stringify(SANDBURG_EXTENSION_PATH_ENV)};
-const PROPAGATED_CHILD_ENV = ${JSON.stringify(SANDBURG_PROPAGATED_CHILD_ENV)};
 const PACKAGE_COMMANDS = new Set(["install", "remove", "uninstall", "update", "list", "config"]);
 const HELP_OR_VERSION = new Set(["--help", "-h", "--version", "-v"]);
 
 function fail(message) {
 	console.error("sandburg pi wrapper: " + message);
 	process.exit(127);
-}
-
-function parseArgsPrefix(value) {
-	try {
-		const parsed = JSON.parse(value ?? "");
-		if (Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string")) return parsed;
-	} catch {
-		// Fall through to fail below.
-	}
-	fail(REAL_PI_ARGS_JSON_ENV + " is missing or invalid");
 }
 
 function removeSandburgExtensionArgs(args, sandburgExtensionPath) {
@@ -116,6 +98,7 @@ function realpathIfPossible(candidate) {
 
 function isExecutable(candidate) {
 	try {
+		if (!fs.statSync(candidate).isFile()) return false;
 		fs.accessSync(candidate, fs.constants.X_OK);
 		return true;
 	} catch {
@@ -124,18 +107,32 @@ function isExecutable(candidate) {
 }
 
 function isManagedPiWrapper(candidate) {
+	let fd;
 	try {
-		return fs.readFileSync(candidate, "utf8").includes(WRAPPER_MARKER);
+		fd = fs.openSync(candidate, "r");
+		const buffer = Buffer.alloc(4096);
+		const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+		return buffer.toString("utf8", 0, bytesRead).includes(WRAPPER_MARKER);
 	} catch {
 		return false;
+	} finally {
+		if (fd !== undefined) {
+			try {
+				fs.closeSync(fd);
+			} catch {
+				// Ignore close errors in this best-effort probe.
+			}
+		}
 	}
 }
 
-function findFallbackPi() {
-	const currentWrapper = realpathIfPossible(process.argv[1] || "");
-	for (const dir of (process.env.PATH || "").split(path.delimiter).filter(Boolean)) {
-		if (!path.isAbsolute(dir)) continue;
-		const candidate = path.join(dir, "pi");
+function findNextPi() {
+	const currentWrapper = realpathIfPossible(__filename);
+	if (process.env.PATH === undefined) return undefined;
+
+	for (const entry of process.env.PATH.split(path.delimiter)) {
+		const directory = entry ? path.resolve(entry) : process.cwd();
+		const candidate = path.join(directory, "pi");
 		if (!isExecutable(candidate)) continue;
 		if (realpathIfPossible(candidate) === currentWrapper) continue;
 		if (isManagedPiWrapper(candidate)) continue;
@@ -144,9 +141,9 @@ function findFallbackPi() {
 	return undefined;
 }
 
-function spawnAndExit(command, args, env = process.env) {
-	const child = spawn(command, args, { stdio: "inherit", env });
-	child.on("error", (error) => fail("failed to launch real pi: " + error.message));
+function spawnAndExit(command, args) {
+	const child = spawn(command, args, { stdio: "inherit" });
+	child.on("error", (error) => fail("failed to launch downstream pi: " + error.message));
 	child.on("exit", (code, signal) => {
 		if (signal) {
 			process.kill(process.pid, signal);
@@ -156,22 +153,16 @@ function spawnAndExit(command, args, env = process.env) {
 	});
 }
 
-function delegateUnchangedOutsideSandburg(originalArgs) {
-	const fallbackPi = findFallbackPi();
-	if (!fallbackPi) fail("not active and no real pi found on PATH");
-	spawnAndExit(fallbackPi, originalArgs);
-}
-
 function main() {
 	const originalArgs = process.argv.slice(2);
+	const downstreamPi = findNextPi();
+	if (!downstreamPi) fail("no downstream pi executable found on PATH");
+
 	if (process.env[ACTIVE_ENV] !== ACTIVE_MARKER) {
-		delegateUnchangedOutsideSandburg(originalArgs);
+		spawnAndExit(downstreamPi, originalArgs);
 		return;
 	}
 
-	const realPiCommand = process.env[REAL_PI_COMMAND_ENV];
-	if (!realPiCommand) fail(REAL_PI_COMMAND_ENV + " is not set");
-	const realPiArgsPrefix = parseArgsPrefix(process.env[REAL_PI_ARGS_JSON_ENV]);
 	const sandburgExtensionPath = process.env[SANDBURG_EXTENSION_ENV];
 	const firstArg = originalArgs[0];
 	const shouldBypassInjection = PACKAGE_COMMANDS.has(firstArg) || HELP_OR_VERSION.has(firstArg);
@@ -182,10 +173,7 @@ function main() {
 		piArgs = ["-e", sandburgExtensionPath, ...removeSandburgExtensionArgs(originalArgs, sandburgExtensionPath)];
 	}
 
-	spawnAndExit(realPiCommand, [...realPiArgsPrefix, ...piArgs], {
-		...process.env,
-		[PROPAGATED_CHILD_ENV]: "1",
-	});
+	spawnAndExit(downstreamPi, piArgs);
 }
 
 main();
@@ -593,7 +581,7 @@ function sameExistingPath(a: string, b: string): boolean {
 	}
 }
 
-export function ensurePathEntryFirst(pathValue: string | undefined, entry: string): { value: string; updated: boolean } {
+export function ensurePathEntryFirst(pathValue: string | undefined, entry: string): string {
 	const entries = pathEntries(pathValue ?? "");
 	let found = false;
 	const entriesWithoutTarget = entries.filter((existing) => {
@@ -604,9 +592,9 @@ export function ensurePathEntryFirst(pathValue: string | undefined, entry: strin
 		return true;
 	});
 	if (found && entries.length > 0 && sameExistingPath(entries[0], entry)) {
-		return { value: pathValue ?? "", updated: false };
+		return pathValue ?? "";
 	}
-	return { value: [entry, ...entriesWithoutTarget].join(delimiter), updated: true };
+	return [entry, ...entriesWithoutTarget].join(delimiter);
 }
 
 function findRealRgOnPathSkipping(binDir: string): string | undefined {
@@ -738,24 +726,6 @@ export function installSandburgPiWrapper(): PiWrapperInstallResult {
 		path: PI_WRAPPER_PATH,
 		violations,
 	};
-}
-
-export function isSandburgManagedPiWrapper(path: string | undefined): boolean {
-	if (!path) return false;
-	try {
-		return readFileSync(path, "utf-8").includes(PI_WRAPPER_MARKER);
-	} catch {
-		return false;
-	}
-}
-
-export function findFirstPiOnPath(pathValue = process.env.PATH ?? ""): string | undefined {
-	for (const dir of pathEntries(pathValue)) {
-		if (!isAbsolute(dir)) continue;
-		const candidate = join(dir, "pi");
-		if (existsSync(candidate) && isExecutable(candidate)) return candidate;
-	}
-	return undefined;
 }
 
 function probeExtensionContext(cwd: string): ExtensionContext {

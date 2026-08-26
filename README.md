@@ -71,55 +71,59 @@ Prepare Sandkasten, then install Sandburg:
 4. From a project directory, test the sandbox:
    `skn bash +W.`
    Confirm that files are accessible or hidden as desired.
-5. Install Sandburg as a normal Pi package:
-   ```sh
-   pi install npm:@grothesque/sandburg
-   ```
-6. Define a shell alias (or script, or shell function) for launching Pi
+   In particular, make sure that the Pi executable and its package root are available.
+   This often requires adding the npm prefix directory
+   (returned by `npm config get prefix`)
+   to `SKN_RO_BINDS`.
+5. Define shell aliases (or scripts, or shell functions) for launching Pi
    within Sandkasten.
    For example:
    ```sh
    pi_agent_dir="$HOME/.pi/agent"
-   mkdir -p "$pi_agent_dir/bin"
+   npm_prefix=$(npm config get prefix)
+   npm_cache=$(npm config get cache)
+   mkdir -p "$pi_agent_dir/bin" "$npm_cache"
 
-   alias pi='skn /path/to/pi \
+   alias skn-pi='skn pi \
      +W "$pi_agent_dir" \
      +T "$pi_agent_dir/bin" \
      +N'
+
+   alias skn-pi-admin='skn-pi \
+     +W "$npm_cache" \
+     +W "$npm_prefix"'
+   ```
+6. Install Sandburg as a normal Pi package:
+   ```sh
+   skn-pi-admin install npm:@grothesque/sandburg
    ```
 
-Replace `/path/to/pi` with the real Pi executable path.
-The alias above exposes `~/.pi/agent/bin`
-as a transient writable overlay.
-The helper files written there by Sandburg are visible only to that Pi process
-while it is running.
+The `+T` option above serves to make any writes to the directory `~/.pi/agent/bin`
+ephemeral.
+This way, the helper files that Sandburg writes there,
+will be only visible to the sandboxes Pi process.
 The `+N` option grants network access to Pi itself,
 so that it can communicate with the model provider.
-If Pi’s executable or package root is not otherwise readable inside the outer sandbox,
-bind the needed path read-only with `SKN_RO_BINDS` or `+R`.
-With a typical npm installation,
-making the npm prefix readable covers both Pi
-and globally installed Pi packages such as Sandburg.
 
 ### Usage
 
-Run the sandboxed Pi with `pi`.
+Run the sandboxed Pi with `skn-pi`.
 Sandburg status should appear in Pi’s status line;
 if it shows a warning or disabled state, run `/sandburg`.
 
 The alias accepts Pi’s regular command-line arguments.
 For example:
 ```sh
-pi --help
-pi --model some_model
-echo "1 + 1" | pi
+skn-pi --help
+skn-pi --model some_model
+echo "1 + 1" | skn-pi
 ```
 
 It also accepts Sandkasten `+` options:
 ```sh
-pi +S            # Show the sandbox setup, including bwrap invocation.
-pi +W.           # Allow writes to the current directory.
-pi +T. +W build  # Discard cwd writes except in build.
+skn-pi +S            # Show the sandbox setup, including bwrap invocation.
+skn-pi +W.           # Allow writes to the current directory.
+skn-pi +T. +W build  # Discard cwd writes except in build.
 ```
 
 By default, apart from Sandkasten’s minimal system/runtime view and private `/tmp`,
@@ -129,28 +133,48 @@ and Pi’s agent directory writable.
 Sandkasten and Pi options can be mixed,
 but Sandkasten options must come first:
 ```sh
-pi +W. --model other_model
+skn-pi +W. --model other_model
 ```
 
 Despite that restriction, shell aliases can still include Pi options
 by using Sandkasten’s special `+A` option:
 ```sh
-alias pi-other='pi +A --model +A other_model'
+alias skn-pi-other='skn-pi +A --model +A other_model'
 ```
 
-### Additional recommendations
+Use `skn-pi-admin` for Pi package-management and update commands,
+for example `skn-pi-admin update`.
 
-To reduce the risk of starting Pi without its outer sandbox,
-keep the npm root `bin` directory out of `PATH`
-and launch Pi only through the Sandkasten wrapper or alias.
+### When Pi is not on the host `PATH`
 
-Install or update Pi, Sandburg, and other npm software
-from inside a suitably restricted Sandkasten session,
-for example:
+The setup above assumes that `pi` is available on the host `PATH`.
+Users who
+[systematically sandbox all Node and npm executables](https://github.com/grothesque/sandkasten/blob/main/EXAMPLES.md#systematically-sandboxing-node-and-npm)
+may instead keep npm’s global executable directory out of the host `PATH`,
+which also removes `pi` from it.
+In that setup, replace the `skn-pi` and `skn-pi-admin` aliases above with
+launchers that invoke Pi by its absolute path and add its executable directory
+to `PATH` only inside the sandbox:
 ```sh
-skn bash +N +W ~/.npm +W ~/.npm-global +R ~/.npmrc
+pi_agent_dir="$HOME/.pi/agent"
+npm_prefix=$(npm config get prefix)
+npm_cache=$(npm config get cache)
+mkdir -p "$pi_agent_dir/bin" "$npm_cache"
+
+alias pi='skn $npm_prefix/bin/pi \
+  +V "PATH=$npm_prefix/bin:$PATH" \
+  +W "$pi_agent_dir" \
+  +T "$pi_agent_dir/bin" \
+  +N'
+
+alias pi-admin='pi \
+  +W "$npm_cache" \
+  +W "$npm_prefix"'
 ```
-This provides a degree of protection against npm supply-chain attacks.
+
+The above assumes that the Pi executable is in the `bin` subdirectory under the npm prefix directory.
+Adjust if necessary.
+The `+V PATH=...` assignment makes `pi` available inside the sandbox.
 
 ### Sandburg setup details
 
@@ -214,6 +238,13 @@ This variable is meant for other private-state aliases.
 
 Sandburg tries to load itself into ordinary nested Pi sessions,
 including child `pi` processes and SDK-created sessions.
+For child processes, Sandburg puts a managed `pi` wrapper first on `PATH`.
+Whenever it runs, the wrapper delegates to the next `pi` on that invocation's
+`PATH`. While Sandburg is active, the wrapper explicitly loads Sandburg for
+commands that may start an ordinary Pi session; package-management and
+help/version commands are delegated unchanged. If no downstream `pi` is
+available, the wrapper reports an error when invoked; this does not affect
+sessions that do not launch child Pi processes.
 This is best-effort compatibility,
 not a boundary against malicious extension code.
 Use `/sandburg` to check propagation status,

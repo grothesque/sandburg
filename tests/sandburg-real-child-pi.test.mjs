@@ -1,14 +1,15 @@
 // Real Pi CLI child-process propagation smoke test
 
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, symlink } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { findToolEnd, parseJsonLines, toolResultText } from "./helpers/events.mjs";
 import {
 	bwrapUsable,
+	DEFAULT_PATH,
 	mkTestDir,
 	piBinPath,
 	piSubprocessEnv,
@@ -32,6 +33,7 @@ test("real Pi CLI child spawn reaches Sandburg's managed wrapper", async (t) => 
 	try {
 		const cwd = join(dir, "project");
 		const agentDir = join(dir, "agent");
+		const realBinDir = join(dir, "real-bin");
 		const childRecordPath = join(dir, "child-record.json");
 		const scriptedProviderPath = join(repoRoot(), "tests", "fixtures", "scripted-provider.ts");
 		const childScript = [
@@ -67,6 +69,8 @@ test("real Pi CLI child spawn reaches Sandburg's managed wrapper", async (t) => 
 		];
 		await mkdir(cwd, { recursive: true });
 		await mkdir(agentDir, { recursive: true });
+		await mkdir(realBinDir, { recursive: true });
+		await symlink(resolve(piBin), join(realBinDir, "pi"));
 
 		const input = `${JSON.stringify({ id: "spawn", type: "prompt", message: "/spawn-pi-probe" })}\n`;
 		const result = spawnSync(
@@ -98,6 +102,7 @@ test("real Pi CLI child spawn reaches Sandburg's managed wrapper", async (t) => 
 					agentDir,
 					home: cwd,
 					extra: {
+						PATH: `${realBinDir}:${dirname(process.execPath)}:${DEFAULT_PATH}`,
 						SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
 						SANDBURG_TEST_PROVIDER_SCRIPT: JSON.stringify(childScript),
 						SANDBURG_TEST_SPAWN_PI_ARGS_JSON: JSON.stringify(childArgs),

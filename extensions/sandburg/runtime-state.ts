@@ -1,33 +1,17 @@
 // Process-global Sandburg runtime state and propagation configuration
-import { existsSync, readFileSync, realpathSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, realpathSync } from "fs";
 import { fileURLToPath } from "url";
 
 export const SANDBURG_DISABLE_PROPAGATION_ENV = "SANDBURG_DISABLE_PROPAGATION";
-export const SANDBURG_REAL_PI_COMMAND_ENV = "SANDBURG_REAL_PI_COMMAND";
-export const SANDBURG_REAL_PI_ARGS_JSON_ENV = "SANDBURG_REAL_PI_ARGS_JSON";
 export const SANDBURG_EXTENSION_PATH_ENV = "SANDBURG_EXTENSION_PATH";
-export const SANDBURG_PROPAGATED_CHILD_ENV = "SANDBURG_PROPAGATED_CHILD";
 
-export type PropagationDisableToken = "pi-wrapper" | "sdk" | "argv1" | "all";
+export type PropagationDisableToken = "pi-wrapper" | "sdk" | "all";
 export type PropagationMechanism = Exclude<PropagationDisableToken, "all">;
-
-export type RealPiInvocation = {
-	command: string;
-	argsPrefix: string[];
-};
-
-type RealPiInvocationCapture =
-	| { status: "captured"; invocation: RealPiInvocation }
-	| { status: "unavailable"; reason: string };
 
 export type PiWrapperPropagationState = {
 	status: "not-started" | "installed" | "disabled" | "unavailable";
 	path?: string;
 	violations: string[];
-	pathUpdated: boolean;
-	firstPiOnPath?: string;
-	firstPiOnPathManaged?: boolean;
 };
 
 export type SdkPropagationState = {
@@ -58,8 +42,6 @@ export type PropagationDisableState = {
 export type SandburgRuntimeState = {
 	version: 1;
 	resolvedSandburgExtensionPath?: string;
-	realPiInvocation?: RealPiInvocation;
-	realPiInvocationUnavailableReason?: string;
 	propagationDisable: PropagationDisableState;
 	piWrapperPropagation: PiWrapperPropagationState;
 	sdkPropagation: SdkPropagationState;
@@ -68,15 +50,15 @@ export type SandburgRuntimeState = {
 };
 
 const RUNTIME_STATE_SYMBOL = Symbol.for("sandburg.runtime-state.v1");
-const RECOGNIZED_DISABLE_TOKENS = new Set<PropagationDisableToken>(["pi-wrapper", "sdk", "argv1", "all"]);
-const PROPAGATION_MECHANISMS: PropagationMechanism[] = ["pi-wrapper", "sdk", "argv1"];
+const RECOGNIZED_DISABLE_TOKENS = new Set<PropagationDisableToken>(["pi-wrapper", "sdk", "all"]);
+const PROPAGATION_MECHANISMS: PropagationMechanism[] = ["pi-wrapper", "sdk"];
 
 function createDefaultDisableState(): PropagationDisableState {
 	return { tokens: new Set(), disabled: new Set(), unknownTokens: [] };
 }
 
 function createPiWrapperPropagationState(): PiWrapperPropagationState {
-	return { status: "not-started", violations: [], pathUpdated: false };
+	return { status: "not-started", violations: [] };
 }
 
 function createSdkPropagationState(): SdkPropagationState {
@@ -116,45 +98,6 @@ function extensionPathFromImportMetaUrl(importMetaUrl: string): string {
 	}
 }
 
-function readPackageNameForCli(cliPath: string): string | undefined {
-	try {
-		const packageJsonPath = join(dirname(dirname(cliPath)), "package.json");
-		const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { name?: unknown };
-		return typeof packageJson.name === "string" ? packageJson.name : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function captureRealPiInvocation(): RealPiInvocationCapture {
-	if (process.env.PI_CODING_AGENT !== "true") {
-		return { status: "unavailable", reason: "PI_CODING_AGENT=true is not set" };
-	}
-
-	const argv1 = process.argv[1];
-	if (!argv1) {
-		return { status: "unavailable", reason: "process.argv[1] is not set" };
-	}
-
-	const resolvedArgv1 = realpathIfPossible(argv1);
-	if (!resolvedArgv1.replace(/\\/g, "/").endsWith("/dist/cli.js")) {
-		return { status: "unavailable", reason: `process.argv[1] is not Pi's dist/cli.js: ${resolvedArgv1}` };
-	}
-
-	const packageName = readPackageNameForCli(resolvedArgv1);
-	if (packageName !== "@earendil-works/pi-coding-agent") {
-		return { status: "unavailable", reason: `process.argv[1] is not from @earendil-works/pi-coding-agent: ${resolvedArgv1}` };
-	}
-
-	return {
-		status: "captured",
-		invocation: {
-			command: process.execPath,
-			argsPrefix: [resolvedArgv1],
-		},
-	};
-}
-
 export function parsePropagationDisableTokens(value: string | undefined): PropagationDisableState {
 	const tokens = new Set<PropagationDisableToken>();
 	const unknownTokens: string[] = [];
@@ -183,14 +126,6 @@ export function parsePropagationDisableTokens(value: string | undefined): Propag
 export function initializeSandburgRuntime(extensionImportMetaUrl: string): SandburgRuntimeState {
 	const state = getSandburgRuntimeState();
 	state.resolvedSandburgExtensionPath ??= extensionPathFromImportMetaUrl(extensionImportMetaUrl);
-	const realPiCapture = captureRealPiInvocation();
-	if (realPiCapture.status === "captured") {
-		state.realPiInvocation = realPiCapture.invocation;
-		delete state.realPiInvocationUnavailableReason;
-	} else {
-		delete state.realPiInvocation;
-		state.realPiInvocationUnavailableReason = realPiCapture.reason;
-	}
 	state.propagationDisable = parsePropagationDisableTokens(process.env[SANDBURG_DISABLE_PROPAGATION_ENV]);
 	return state;
 }
@@ -274,11 +209,6 @@ export function claimActiveSandburgSession(): ActiveSessionHandle {
 
 export function hasActiveSandburgSession(state = getSandburgRuntimeState()): boolean {
 	return state.activeSessionOwners.size > 0;
-}
-
-export function describeRealPiInvocation(invocation: RealPiInvocation | undefined, unavailableReason?: string): string {
-	if (!invocation) return unavailableReason ? `(not captured: ${unavailableReason})` : "(not captured)";
-	return [invocation.command, ...invocation.argsPrefix].join(" ");
 }
 
 export function __resetSandburgRuntimeStateForTests() {

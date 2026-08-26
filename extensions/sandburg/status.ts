@@ -8,11 +8,7 @@ import {
 	checkSandburgHelpers,
 } from "./helpers.js";
 import { PRIVATE_ROOTS, getExtraPrivatePathViolations } from "./private-roots.js";
-import {
-	SANDBURG_DISABLE_PROPAGATION_ENV,
-	describeRealPiInvocation,
-	getSandburgRuntimeState,
-} from "./runtime-state.js";
+import { SANDBURG_DISABLE_PROPAGATION_ENV, getSandburgRuntimeState } from "./runtime-state.js";
 
 type ToolInfo = ReturnType<ExtensionAPI["getAllTools"]>[number];
 
@@ -433,12 +429,9 @@ export function buildSandburgStatus(pi: ExtensionAPI, sandburgCheck = checkSandb
 		"",
 		"Nested Pi propagation",
 		`- managed pi wrapper: ${piWrapper.status}${piWrapper.path ? ` (${piWrapper.path})` : ""}`,
-		`- process PATH updated: ${piWrapper.pathUpdated ? "yes" : "no"}`,
-		`- first pi on PATH: ${piWrapper.firstPiOnPath ?? "(not found)"}${piWrapper.firstPiOnPath ? (piWrapper.firstPiOnPathManaged ? " (Sandburg-managed)" : " (not Sandburg-managed)") : ""}`,
-		`- real Pi invocation: ${describeRealPiInvocation(runtimeState.realPiInvocation, runtimeState.realPiInvocationUnavailableReason)}`,
+		"- downstream pi: resolved from PATH when the wrapper runs",
 		`- propagated Sandburg extension: ${runtimeState.resolvedSandburgExtensionPath ?? "(not initialized)"}`,
 		`- SDK session propagation: ${sdkPropagation.status}`,
-		"- argv[1] propagation: not enabled",
 		`- propagation disabled: ${disabledPropagation.length > 0 ? disabledPropagation.join(", ") : "(none)"}`,
 	);
 

@@ -45,13 +45,14 @@ async function installWrapper(agentDir) {
 }
 
 async function writeFakeRealPi(path) {
+	await mkdir(dirname(path), { recursive: true });
 	await writeFile(
 		path,
 		`#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(process.env.SANDBURG_FAKE_REAL_PI_RECORD, JSON.stringify({
+	executable: process.argv[1],
 	argv: process.argv.slice(2),
-	propagated: process.env.SANDBURG_PROPAGATED_CHILD,
 }));
 process.exit(Number(process.env.SANDBURG_FAKE_REAL_PI_EXIT || "0"));
 `,
@@ -67,10 +68,8 @@ async function readRecord(path) {
 function runActiveWrapper(wrapperPath, args, { fakeRealPi, recordPath, sandburgExtensionPath }) {
 	return spawnSync(wrapperPath, args, {
 		env: {
-			PATH: DEFAULT_PATH,
+			PATH: [dirname(fakeRealPi), DEFAULT_PATH].join(delimiter),
 			SANDBURG_ACTIVE: ACTIVE_MARKER,
-			SANDBURG_REAL_PI_COMMAND: process.execPath,
-			SANDBURG_REAL_PI_ARGS_JSON: JSON.stringify([fakeRealPi]),
 			SANDBURG_EXTENSION_PATH: sandburgExtensionPath,
 			SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
 		},
@@ -104,7 +103,7 @@ test("Sandburg pi wrapper injects Sandburg into normal child Pi invocations", as
 		const agentDir = join(dir, "agent");
 		await mkdir(agentDir, { recursive: true });
 		const wrapperPath = await installWrapper(agentDir);
-		const fakeRealPi = join(dir, "real-pi");
+		const fakeRealPi = join(dir, "real-bin", "pi");
 		const recordPath = join(dir, "record.json");
 		const sandburgExtensionPath = join(dir, "sandburg", "index.ts");
 		await writeFakeRealPi(fakeRealPi);
@@ -124,7 +123,6 @@ test("Sandburg pi wrapper injects Sandburg into normal child Pi invocations", as
 			"json",
 			"hello",
 		]);
-		assert.equal((await readRecord(recordPath)).propagated, "1");
 	} finally {
 		await rmTestDir(dir);
 	}
@@ -136,7 +134,7 @@ test("Sandburg pi wrapper delegates package commands unchanged", async () => {
 		const agentDir = join(dir, "agent");
 		await mkdir(agentDir, { recursive: true });
 		const wrapperPath = await installWrapper(agentDir);
-		const fakeRealPi = join(dir, "real-pi");
+		const fakeRealPi = join(dir, "real-bin", "pi");
 		const recordPath = join(dir, "record.json");
 		await writeFakeRealPi(fakeRealPi);
 
@@ -148,6 +146,82 @@ test("Sandburg pi wrapper delegates package commands unchanged", async () => {
 
 		assert.equal(result.status, 0, result.stderr);
 		assert.deepEqual((await readRecord(recordPath)).argv, ["install", "npm:@example/pkg"]);
+	} finally {
+		await rmTestDir(dir);
+	}
+});
+
+test("active Sandburg pi wrapper delegates to the first downstream pi on PATH", async () => {
+	const dir = await mkTestDir("sandburg-pi-wrapper-path-order");
+	try {
+		const agentDir = join(dir, "agent");
+		const wrapperPath = await installWrapper(agentDir);
+		const firstPi = join(dir, "first-bin", "pi");
+		const secondPi = join(dir, "second-bin", "pi");
+		const recordPath = join(dir, "record.json");
+		await writeFakeRealPi(firstPi);
+		await writeFakeRealPi(secondPi);
+
+		const result = spawnSync(wrapperPath, ["hello"], {
+			env: {
+				PATH: [dirname(firstPi), dirname(secondPi), DEFAULT_PATH].join(delimiter),
+				SANDBURG_ACTIVE: ACTIVE_MARKER,
+				SANDBURG_EXTENSION_PATH: join(dir, "sandburg", "index.ts"),
+				SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
+			},
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: 5000,
+		});
+
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(realpathSync((await readRecord(recordPath)).executable), realpathSync(firstPi));
+	} finally {
+		await rmTestDir(dir);
+	}
+});
+
+test("Sandburg pi wrapper follows relative and empty PATH entries", async (t) => {
+	const dir = await mkTestDir("sandburg-pi-wrapper-relative-path");
+	try {
+		const wrapperPath = await installWrapper(join(dir, "agent"));
+		const cases = [
+			{
+				name: "relative entry",
+				cwd: join(dir, "relative"),
+				pathEntry: "real-bin",
+				piPath: join(dir, "relative", "real-bin", "pi"),
+			},
+			{
+				name: "empty entry",
+				cwd: join(dir, "empty"),
+				pathEntry: "",
+				piPath: join(dir, "empty", "pi"),
+			},
+		];
+
+		for (const testCase of cases) {
+			await t.test(testCase.name, async () => {
+				const recordPath = join(testCase.cwd, "record.json");
+				await writeFakeRealPi(testCase.piPath);
+
+				const result = spawnSync(wrapperPath, ["hello"], {
+					cwd: testCase.cwd,
+					env: {
+						PATH: [testCase.pathEntry, DEFAULT_PATH].join(delimiter),
+						SANDBURG_ACTIVE: ACTIVE_MARKER,
+						SANDBURG_EXTENSION_PATH: join(dir, "sandburg", "index.ts"),
+						SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
+					},
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "pipe"],
+					timeout: 5000,
+				});
+
+				assert.equal(result.status, 0, result.stderr);
+				assert.equal(realpathSync((await readRecord(recordPath)).executable), realpathSync(testCase.piPath));
+			});
+		}
 	} finally {
 		await rmTestDir(dir);
 	}
@@ -178,14 +252,13 @@ test("stale Sandburg pi wrapper delegates transparently outside active Sandburg 
 		assert.equal(result.status, 0, result.stderr);
 		const record = await readRecord(recordPath);
 		assert.deepEqual(record.argv, ["--mode", "json", "hello"]);
-		assert.equal(record.propagated, undefined);
 	} finally {
 		await rmTestDir(dir);
 	}
 });
 
-test("active Sandburg pi wrapper still fails closed without propagation configuration", async () => {
-	const dir = await mkTestDir("sandburg-pi-wrapper-active-missing-config");
+test("active Sandburg pi wrapper reports a missing downstream pi when invoked", async () => {
+	const dir = await mkTestDir("sandburg-pi-wrapper-active-no-downstream");
 	try {
 		const agentDir = join(dir, "agent");
 		const wrapperPath = await installWrapper(agentDir);
@@ -194,6 +267,7 @@ test("active Sandburg pi wrapper still fails closed without propagation configur
 			env: {
 				PATH: DEFAULT_PATH,
 				SANDBURG_ACTIVE: ACTIVE_MARKER,
+				SANDBURG_EXTENSION_PATH: join(dir, "sandburg", "index.ts"),
 			},
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -201,7 +275,32 @@ test("active Sandburg pi wrapper still fails closed without propagation configur
 		});
 
 		assert.equal(result.status, 127);
-		assert.match(result.stderr, /SANDBURG_REAL_PI_COMMAND is not set/);
+		assert.match(result.stderr, /no downstream pi executable found on PATH/);
+	} finally {
+		await rmTestDir(dir);
+	}
+});
+
+test("active Sandburg pi wrapper fails closed without the propagated extension path", async () => {
+	const dir = await mkTestDir("sandburg-pi-wrapper-active-missing-extension");
+	try {
+		const agentDir = join(dir, "agent");
+		const wrapperPath = await installWrapper(agentDir);
+		const fakeRealPi = join(dir, "real-bin", "pi");
+		await writeFakeRealPi(fakeRealPi);
+
+		const result = spawnSync(wrapperPath, ["hello"], {
+			env: {
+				PATH: [dirname(fakeRealPi), DEFAULT_PATH].join(delimiter),
+				SANDBURG_ACTIVE: ACTIVE_MARKER,
+			},
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: 5000,
+		});
+
+		assert.equal(result.status, 127);
+		assert.match(result.stderr, /SANDBURG_EXTENSION_PATH is not set/);
 	} finally {
 		await rmTestDir(dir);
 	}
@@ -229,13 +328,13 @@ test("stale Sandburg pi wrapper does not recurse into managed wrappers", async (
 		});
 
 		assert.equal(result.status, 127);
-		assert.match(result.stderr, /not active and no real pi found on PATH/);
+		assert.match(result.stderr, /no downstream pi executable found on PATH/);
 	} finally {
 		await rmTestDir(dir);
 	}
 });
 
-test("Sandburg does not enable pi wrapper propagation in non-Pi SDK hosts", async () => {
+test("Sandburg enables pi wrapper propagation in SDK hosts without inspecting the host executable", async () => {
 	const dir = await mkTestDir("sandburg-pi-wrapper-sdk-host");
 	let harness;
 	try {
@@ -248,20 +347,20 @@ test("Sandburg does not enable pi wrapper propagation in non-Pi SDK hosts", asyn
 		harness = await createSandburgSdkSession({ cwd, agentDir, responses: [] });
 
 		assert.deepEqual(harness.extensionsResult.errors, []);
-		assert.notEqual(process.env.PATH.split(delimiter)[0], agentBinDir);
-		await assert.rejects(readFile(join(agentBinDir, "pi"), "utf8"), { code: "ENOENT" });
+		assert.equal(process.env.PATH.split(delimiter)[0], agentBinDir);
+		assert.match(await readFile(join(agentBinDir, "pi"), "utf8"), new RegExp(PI_WRAPPER_MARKER));
 
 		const runtime = await jiti.import("../extensions/sandburg/runtime-state.ts");
 		const state = runtime.getSandburgRuntimeState();
-		assert.equal(state.piWrapperPropagation.status, "unavailable");
-		assert.match(state.piWrapperPropagation.violations.join("\n"), /PI_CODING_AGENT=true is not set/);
+		assert.equal(state.piWrapperPropagation.status, "installed");
+		assert.deepEqual(state.piWrapperPropagation.violations, []);
 	} finally {
 		harness?.dispose();
 		await rmTestDir(dir);
 	}
 });
 
-test("Sandburg leaves an existing agent bin PATH entry in place in non-Pi SDK hosts", async () => {
+test("Sandburg moves an existing agent bin PATH entry first in SDK hosts", async () => {
 	const dir = await mkTestDir("sandburg-pi-wrapper-sdk-host-path");
 	let harness;
 	try {
@@ -283,8 +382,8 @@ test("Sandburg leaves an existing agent bin PATH entry in place in non-Pi SDK ho
 		});
 
 		assert.deepEqual(harness.extensionsResult.errors, []);
-		assert.equal(process.env.PATH, originalPath);
-		await assert.rejects(readFile(join(agentBinDir, "pi"), "utf8"), { code: "ENOENT" });
+		assert.equal(process.env.PATH, [agentBinDir, otherBinDir, DEFAULT_PATH].join(delimiter));
+		assert.match(await readFile(join(agentBinDir, "pi"), "utf8"), new RegExp(PI_WRAPPER_MARKER));
 	} finally {
 		harness?.dispose();
 		await rmTestDir(dir);
@@ -345,23 +444,19 @@ test("extension subprocesses that spawn pi reach Sandburg's managed wrapper when
 		const cwd = join(dir, "project");
 		const agentDir = join(dir, "agent");
 		const agentBinDir = join(agentDir, "bin");
-		const fakeRealPi = join(dir, "real-pi");
+		const fakeRealPi = join(dir, "real-bin", "pi");
 		const recordPath = join(dir, "record.json");
 		const nestedArgs = ["--no-extensions", "--mode", "json", "nested prompt"];
 		const propagatedSandburgPath = realpathSync(join(sandburgExtensionPath(), "index.ts"));
 		await mkdir(cwd, { recursive: true });
 		await mkdir(agentDir, { recursive: true });
 		await writeFakeRealPi(fakeRealPi);
-		await installWrapper(agentDir);
 
 		harness = await createSandburgSdkSession({
 			cwd,
 			agentDir,
 			env: {
-				PATH: [agentBinDir, DEFAULT_PATH].join(delimiter),
-				SANDBURG_REAL_PI_COMMAND: process.execPath,
-				SANDBURG_REAL_PI_ARGS_JSON: JSON.stringify([fakeRealPi]),
-				SANDBURG_EXTENSION_PATH: propagatedSandburgPath,
+				PATH: [agentBinDir, dirname(fakeRealPi), DEFAULT_PATH].join(delimiter),
 				SANDBURG_TEST_SPAWN_PI_ARGS_JSON: JSON.stringify(nestedArgs),
 				SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
 			},
@@ -374,7 +469,6 @@ test("extension subprocesses that spawn pi reach Sandburg's managed wrapper when
 
 		const record = await readRecord(recordPath);
 		assert.deepEqual(record.argv, ["-e", propagatedSandburgPath, ...nestedArgs]);
-		assert.equal(record.propagated, "1");
 	} finally {
 		harness?.dispose();
 		await rmTestDir(dir);
@@ -387,7 +481,7 @@ test("Sandburg pi wrapper deduplicates its own explicit extension path", async (
 		const agentDir = join(dir, "agent");
 		await mkdir(agentDir, { recursive: true });
 		const wrapperPath = await installWrapper(agentDir);
-		const fakeRealPi = join(dir, "real-pi");
+		const fakeRealPi = join(dir, "real-bin", "pi");
 		const recordPath = join(dir, "record.json");
 		const sandburgExtensionPath = join(dir, "sandburg", "index.ts");
 		const otherExtensionPath = join(dir, "other", "index.ts");

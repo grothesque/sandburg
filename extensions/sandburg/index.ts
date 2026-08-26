@@ -18,10 +18,8 @@ import {
 import {
 	ACTIVE_MARKER,
 	ensurePathEntryFirst,
-	findFirstPiOnPath,
 	installSandburgHelpers,
 	installSandburgPiWrapper,
-	isSandburgManagedPiWrapper,
 	shQuote,
 	verifyPiGrepReachesRgWrapper,
 } from "./helpers.js";
@@ -40,8 +38,6 @@ import {
 } from "./path-policy.js";
 import {
 	SANDBURG_EXTENSION_PATH_ENV,
-	SANDBURG_REAL_PI_ARGS_JSON_ENV,
-	SANDBURG_REAL_PI_COMMAND_ENV,
 	claimActiveSandburgSession,
 	claimSandburgProcessEnv,
 	initializeSandburgRuntime,
@@ -98,25 +94,16 @@ function setSandburgUiStatus(ctx: ExtensionContext, status: SandburgUiStatus | u
 }
 
 function setPiWrapperNotPropagating(status: "disabled" | "unavailable", violations: string[]) {
-	const firstPiOnPath = findFirstPiOnPath();
 	setPiWrapperPropagationState({
 		status,
 		path: undefined,
 		violations,
-		pathUpdated: false,
-		firstPiOnPath,
-		firstPiOnPathManaged: isSandburgManagedPiWrapper(firstPiOnPath),
 	});
 }
 
 function setupPiWrapperPropagation(runtimeState: SandburgRuntimeState): Record<string, string> {
 	if (runtimeState.propagationDisable.disabled.has("pi-wrapper")) {
 		setPiWrapperNotPropagating("disabled", []);
-		return {};
-	}
-
-	if (!runtimeState.realPiInvocation) {
-		setPiWrapperNotPropagating("unavailable", [runtimeState.realPiInvocationUnavailableReason ?? "valid real Pi CLI invocation was not captured"]);
 		return {};
 	}
 
@@ -127,14 +114,10 @@ function setupPiWrapperPropagation(runtimeState: SandburgRuntimeState): Record<s
 
 	const installResult = installSandburgPiWrapper();
 	if (installResult.status !== "installed") {
-		const firstPiOnPath = findFirstPiOnPath();
 		setPiWrapperPropagationState({
 			status: "unavailable",
 			path: installResult.path,
 			violations: installResult.violations,
-			pathUpdated: false,
-			firstPiOnPath,
-			firstPiOnPathManaged: isSandburgManagedPiWrapper(firstPiOnPath),
 		});
 		return {};
 	}
@@ -143,22 +126,17 @@ function setupPiWrapperPropagation(runtimeState: SandburgRuntimeState): Record<s
 	// directory for that tool subprocess. That does not mutate process.env.PATH,
 	// so trusted extensions that spawn("pi", ..., { env: process.env }) would not
 	// necessarily find Sandburg's wrapper. Put the managed wrapper directory first
-	// in the inherited process environment for child-Pi propagation.
+	// in the inherited process environment. The wrapper resolves the next pi on
+	// each invocation, preserving normal PATH command selection.
 	const nextPath = ensurePathEntryFirst(process.env.PATH, AGENT_BIN_DIR);
-	const firstPiOnPath = findFirstPiOnPath(nextPath.value);
 	setPiWrapperPropagationState({
 		status: "installed",
 		path: installResult.path,
 		violations: [],
-		pathUpdated: nextPath.updated,
-		firstPiOnPath,
-		firstPiOnPathManaged: isSandburgManagedPiWrapper(firstPiOnPath),
 	});
 
 	return {
-		PATH: nextPath.value,
-		[SANDBURG_REAL_PI_COMMAND_ENV]: runtimeState.realPiInvocation.command,
-		[SANDBURG_REAL_PI_ARGS_JSON_ENV]: JSON.stringify(runtimeState.realPiInvocation.argsPrefix),
+		PATH: nextPath,
 		[SANDBURG_EXTENSION_PATH_ENV]: runtimeState.resolvedSandburgExtensionPath,
 	};
 }
