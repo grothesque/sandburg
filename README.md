@@ -320,7 +320,6 @@ For local development or one-off testing,
 load Sandburg explicitly from the working tree:
 ```sh
 pi -e .
-pi -e extensions/sandburg/index.ts
 ```
 
 See `tests/README.md` for test-suite details.
