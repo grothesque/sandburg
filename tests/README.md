@@ -43,31 +43,20 @@ PI_CODING_AGENT_PACKAGE_DIR=/path/to/@earendil-works/pi-coding-agent npm test
 PI_PACKAGE_DIR=/path/to/@earendil-works/pi-coding-agent npm test
 ```
 
-The optional Sandkasten integration test discovers `skn`
-from `SKN_BIN` or `PATH`:
-
-```sh
-SKN_BIN=/path/to/skn PI_BIN=/path/to/pi npm test
-```
-
 Some tests skip when host prerequisites are unavailable or unusable:
 
 - Pi CLI: CLI/RPC smoke tests.
 - `bwrap`: tool-sandbox execution tests.
-- `skn`: optional Sandkasten integration.
 
 ## Design
 
-The suite has three layers:
+The suite has two layers:
 
 1. **SDK tests with faux model responses** for detailed Sandburg behavior.
    These run in-process and are deterministic.
 2. **Sparse CLI/RPC smoke tests**
    to prove real Pi can load Sandburg and the test provider extension
    in non-interactive modes.
-3. **Optional Sandkasten integration**
-   to smoke-test the recommended outer + inner sandbox composition
-   when Sandkasten is available.
 
 Tests intentionally avoid Pi’s TUI.
 They assert stable semantics such as tool names,
@@ -91,8 +80,7 @@ or network access.
 ## Extending the suite
 
 Prefer SDK/faux-provider tests for Sandburg behavior.
-Add CLI/RPC tests only for coarse integration coverage through real Pi modes,
-and keep Sandkasten tests optional and skippable.
+Add CLI/RPC tests only for coarse integration coverage through real Pi modes.
 
 Guidelines:
 
@@ -127,8 +115,6 @@ Important caveats:
   enable it explicitly with a `tools` allowlist when testing it.
 - `bwrap` must be usable on the host/kernel,
   not merely installed.
-- Sandkasten integration verifies defense-in-depth composition
-  and should not be required for ordinary Sandburg development.
 
 ## Troubleshooting
 
@@ -139,6 +125,3 @@ Important caveats:
   run `npm ci` if needed, then `npm test`; set `PI_BIN`; or put `pi` on `PATH`.
 - Tool-sandbox tests are skipped or fail:
   check that `bwrap` works on this host.
-- Sandkasten test is skipped:
-  set `SKN_BIN` or put `skn` on `PATH`;
-  the test is optional.
