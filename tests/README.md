@@ -82,7 +82,7 @@ or terminal/UI formatting.
 
 Each test uses a fresh temporary project directory and Pi agent directory.
 Pi subprocess tests use a small explicit environment
-rather than inheriting the user’s full environment.
+with the host’s `PATH` rather than inheriting the user’s full environment.
 Normal test runs should not depend on the user’s real `~/.pi/agent`,
 installed extensions,
 real LLM credentials,
@@ -98,9 +98,9 @@ Guidelines:
 
 - Keep each test focused on one behavior axis.
 - Use fresh temp dirs and a fresh `PI_CODING_AGENT_DIR`.
-- Use `PATH=/usr/bin:/bin`
-  unless the test explicitly needs the Pi CLI’s bin directory
-  or an agent-bin wrapper.
+- Use the host `PATH` by default.
+  Control `PATH` explicitly when testing executable selection,
+  such as wrapper ordering or the absence of a downstream `pi`.
 - Do not pass the user’s full environment to subprocesses;
   use `piSubprocessEnv()` or another explicit env.
 - Load Sandburg explicitly;

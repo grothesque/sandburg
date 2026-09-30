@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 
 import { findToolEnd, lastAssistantText, toolResultText } from "./events.mjs";
-import { DEFAULT_PATH, sandburgExtensionPath } from "./test-env.mjs";
+import { HOST_PATH, sandburgExtensionPath } from "./test-env.mjs";
 
 const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const PI_AI_PACKAGE_NAME = "@earendil-works/pi-ai";
@@ -151,7 +151,7 @@ function applySessionEnv(agentDir, extraEnv = {}) {
 
 	for (const key of managedKeys) delete process.env[key];
 	pointSdkImportBinDirAt(agentDir);
-	process.env.PATH = DEFAULT_PATH;
+	process.env.PATH = HOST_PATH;
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	process.env.PI_OFFLINE = "1";
 	Object.assign(process.env, extraEnv);

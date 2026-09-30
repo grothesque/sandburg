@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { findToolEnd, parseJsonLines, toolResultText } from "./helpers/events.mjs";
 import {
 	bwrapUsable,
-	DEFAULT_PATH,
+	HOST_PATH,
 	mkTestDir,
 	piBinPath,
 	piSubprocessEnv,
@@ -102,7 +102,7 @@ test("real Pi CLI child spawn reaches Sandburg's managed wrapper", async (t) => 
 					agentDir,
 					home: cwd,
 					extra: {
-						PATH: `${realBinDir}:${dirname(process.execPath)}:${DEFAULT_PATH}`,
+						PATH: `${realBinDir}:${dirname(process.execPath)}:${HOST_PATH}`,
 						SANDBURG_TEST_PROVIDER_API_KEY: "dummy",
 						SANDBURG_TEST_PROVIDER_SCRIPT: JSON.stringify(childScript),
 						SANDBURG_TEST_SPAWN_PI_ARGS_JSON: JSON.stringify(childArgs),

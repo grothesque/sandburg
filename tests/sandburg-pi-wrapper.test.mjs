@@ -1,14 +1,14 @@
 // Managed nested-Pi wrapper tests
 
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { constants, realpathSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { createJiti } from "jiti";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_PATH, mkTestDir, repoRoot, rmTestDir, sandburgExtensionPath } from "./helpers/test-env.mjs";
+import { HOST_PATH, mkTestDir, repoRoot, rmTestDir, sandburgExtensionPath } from "./helpers/test-env.mjs";
 import { createSandburgSdkSession } from "./helpers/pi-sdk-harness.mjs";
 
 const jiti = createJiti(import.meta.url, { moduleCache: false });
@@ -29,7 +29,7 @@ function restoreEnv(savedEnv) {
 async function importHelpersForAgentDir(agentDir) {
 	const savedEnv = saveEnv(["PI_CODING_AGENT_DIR", "PATH"]);
 	process.env.PI_CODING_AGENT_DIR = agentDir;
-	process.env.PATH = DEFAULT_PATH;
+	process.env.PATH = HOST_PATH;
 	try {
 		return await jiti.import("../extensions/sandburg/helpers.ts");
 	} finally {
@@ -65,10 +65,17 @@ async function readRecord(path) {
 	return JSON.parse(await readFile(path, "utf8"));
 }
 
+async function nodeOnlyBinDir(dir) {
+	const binDir = join(dir, "node-bin");
+	await mkdir(binDir);
+	await symlink(process.execPath, join(binDir, "node"));
+	return binDir;
+}
+
 function runActiveWrapper(wrapperPath, args, { fakeRealPi, recordPath, sandburgExtensionPath }) {
 	return spawnSync(wrapperPath, args, {
 		env: {
-			PATH: [dirname(fakeRealPi), DEFAULT_PATH].join(delimiter),
+			PATH: [dirname(fakeRealPi), HOST_PATH].join(delimiter),
 			SANDBURG_ACTIVE: ACTIVE_MARKER,
 			SANDBURG_EXTENSION_PATH: sandburgExtensionPath,
 			SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
@@ -164,7 +171,7 @@ test("active Sandburg pi wrapper delegates to the first downstream pi on PATH", 
 
 		const result = spawnSync(wrapperPath, ["hello"], {
 			env: {
-				PATH: [dirname(firstPi), dirname(secondPi), DEFAULT_PATH].join(delimiter),
+				PATH: [dirname(firstPi), dirname(secondPi), HOST_PATH].join(delimiter),
 				SANDBURG_ACTIVE: ACTIVE_MARKER,
 				SANDBURG_EXTENSION_PATH: join(dir, "sandburg", "index.ts"),
 				SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
@@ -208,7 +215,7 @@ test("Sandburg pi wrapper follows relative and empty PATH entries", async (t) =>
 				const result = spawnSync(wrapperPath, ["hello"], {
 					cwd: testCase.cwd,
 					env: {
-						PATH: [testCase.pathEntry, DEFAULT_PATH].join(delimiter),
+						PATH: [testCase.pathEntry, HOST_PATH].join(delimiter),
 						SANDBURG_ACTIVE: ACTIVE_MARKER,
 						SANDBURG_EXTENSION_PATH: join(dir, "sandburg", "index.ts"),
 						SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
@@ -241,7 +248,7 @@ test("stale Sandburg pi wrapper delegates transparently outside active Sandburg 
 
 		const result = spawnSync(wrapperPath, ["--mode", "json", "hello"], {
 			env: {
-				PATH: [agentBinDir, realBinDir, DEFAULT_PATH].join(delimiter),
+				PATH: [agentBinDir, realBinDir, HOST_PATH].join(delimiter),
 				SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
 			},
 			encoding: "utf8",
@@ -262,10 +269,11 @@ test("active Sandburg pi wrapper reports a missing downstream pi when invoked", 
 	try {
 		const agentDir = join(dir, "agent");
 		const wrapperPath = await installWrapper(agentDir);
+		const nodeBinDir = await nodeOnlyBinDir(dir);
 
 		const result = spawnSync(wrapperPath, ["hello"], {
 			env: {
-				PATH: DEFAULT_PATH,
+				PATH: nodeBinDir,
 				SANDBURG_ACTIVE: ACTIVE_MARKER,
 				SANDBURG_EXTENSION_PATH: join(dir, "sandburg", "index.ts"),
 			},
@@ -291,7 +299,7 @@ test("active Sandburg pi wrapper fails closed without the propagated extension p
 
 		const result = spawnSync(wrapperPath, ["hello"], {
 			env: {
-				PATH: [dirname(fakeRealPi), DEFAULT_PATH].join(delimiter),
+				PATH: [dirname(fakeRealPi), HOST_PATH].join(delimiter),
 				SANDBURG_ACTIVE: ACTIVE_MARKER,
 			},
 			encoding: "utf8",
@@ -314,13 +322,14 @@ test("stale Sandburg pi wrapper does not recurse into managed wrappers", async (
 		const otherBinDir = join(dir, "other-bin");
 		const wrapperPath = await installWrapper(agentDir);
 		const otherWrapperPath = join(otherBinDir, "pi");
+		const nodeBinDir = await nodeOnlyBinDir(dir);
 		await mkdir(otherBinDir, { recursive: true });
 		await writeFile(otherWrapperPath, await readFile(wrapperPath, "utf8"), { mode: 0o755 });
 		await chmod(otherWrapperPath, 0o755);
 
 		const result = spawnSync(wrapperPath, ["hello"], {
 			env: {
-				PATH: [agentBinDir, dirname(process.execPath), otherBinDir].join(delimiter),
+				PATH: [agentBinDir, nodeBinDir, otherBinDir].join(delimiter),
 			},
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -368,7 +377,7 @@ test("Sandburg moves an existing agent bin PATH entry first in SDK hosts", async
 		const agentDir = join(dir, "agent");
 		const agentBinDir = join(agentDir, "bin");
 		const otherBinDir = join(dir, "other-bin");
-		const originalPath = [otherBinDir, agentBinDir, DEFAULT_PATH].join(delimiter);
+		const originalPath = [otherBinDir, agentBinDir, HOST_PATH].join(delimiter);
 		await mkdir(cwd, { recursive: true });
 		await mkdir(agentBinDir, { recursive: true });
 		await mkdir(otherBinDir, { recursive: true });
@@ -382,7 +391,7 @@ test("Sandburg moves an existing agent bin PATH entry first in SDK hosts", async
 		});
 
 		assert.deepEqual(harness.extensionsResult.errors, []);
-		assert.equal(process.env.PATH, [agentBinDir, otherBinDir, DEFAULT_PATH].join(delimiter));
+		assert.equal(process.env.PATH, [agentBinDir, otherBinDir, HOST_PATH].join(delimiter));
 		assert.match(await readFile(join(agentBinDir, "pi"), "utf8"), new RegExp(PI_WRAPPER_MARKER));
 	} finally {
 		harness?.dispose();
@@ -456,7 +465,7 @@ test("extension subprocesses that spawn pi reach Sandburg's managed wrapper when
 			cwd,
 			agentDir,
 			env: {
-				PATH: [agentBinDir, dirname(fakeRealPi), DEFAULT_PATH].join(delimiter),
+				PATH: [agentBinDir, dirname(fakeRealPi), HOST_PATH].join(delimiter),
 				SANDBURG_TEST_SPAWN_PI_ARGS_JSON: JSON.stringify(nestedArgs),
 				SANDBURG_FAKE_REAL_PI_RECORD: recordPath,
 			},

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../..");
-export const DEFAULT_PATH = "/usr/bin:/bin";
+export const HOST_PATH = process.env.PATH ?? `${dirname(process.execPath)}:/usr/bin:/bin`;
 
 export function repoRoot() {
 	return REPO_ROOT;
@@ -55,7 +55,7 @@ export function piSubprocessEnv({ piBin, agentDir, home, extra = {} } = {}) {
 	if (!agentDir) throw new Error("piSubprocessEnv requires agentDir");
 
 	const env = {
-		PATH: `${DEFAULT_PATH}${delimiter}${dirname(piBin)}`,
+		PATH: `${dirname(piBin)}${delimiter}${HOST_PATH}`,
 		HOME: home ?? agentDir,
 		LANG: "C.UTF-8",
 		PI_CODING_AGENT_DIR: agentDir,
@@ -87,7 +87,7 @@ export function bwrapUsable() {
 			"/bin/true",
 		],
 		{
-			env: { PATH: DEFAULT_PATH },
+			env: { PATH: HOST_PATH },
 			stdio: "ignore",
 			timeout: 5000,
 		},

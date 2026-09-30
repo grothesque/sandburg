@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 
 import { parseJsonLines } from "./helpers/events.mjs";
 import {
-	DEFAULT_PATH,
+	HOST_PATH,
 	mkTestDir,
 	piBinPath,
 	repoRoot,
@@ -23,7 +23,7 @@ function sandkastenCommand() {
 
 function sandkastenHostEnv() {
 	return {
-		PATH: process.env.PATH ?? DEFAULT_PATH,
+		PATH: process.env.PATH ?? HOST_PATH,
 		SKN_PATH_CHECK: "true",
 	};
 }
@@ -81,6 +81,8 @@ test("Pi RPC status works inside optional Sandkasten outer sandbox", async (t) =
 				piReadBind,
 				"+R",
 				repoRoot(),
+				"+R",
+				dirname(process.execPath),
 				"+W",
 				cwd,
 				"+W",
@@ -90,14 +92,13 @@ test("Pi RPC status works inside optional Sandkasten outer sandbox", async (t) =
 				"+V",
 				"PI_OFFLINE=1",
 				"+V",
-				`PATH=${DEFAULT_PATH}`,
+				`PATH=${dirname(process.execPath)}:${HOST_PATH}`,
 				"+V",
 				`HOME=${cwd}`,
 				"+V",
 				"SANDBURG_TEST_PROVIDER_API_KEY=dummy",
 				"+V",
 				"SANDBURG_TEST_PROVIDER_SCRIPT=[]",
-				"--",
 				"--mode",
 				"rpc",
 				"--no-session",
