@@ -142,7 +142,11 @@ function isSandburgToolSource(tool: ToolInfo): boolean {
 }
 
 function isBuiltinToolSource(tool: ToolInfo, name: string): boolean {
-	return tool.sourceInfo.source === "builtin" && tool.sourceInfo.path === `<builtin:${name}>`;
+	// Before Pi 0.99.0, built-in tools used <builtin:name> rather than builtin:name.
+	return (
+		tool.sourceInfo.source === "builtin" &&
+		(tool.sourceInfo.path === `<builtin:${name}>` || tool.sourceInfo.path === `builtin:${name}`)
+	);
 }
 
 function appendPathList(lines: string[], label: string, paths: string[]) {

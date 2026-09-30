@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accept Pi 0.99.0's `builtin:grep`-style tool source paths alongside the older
+  `<builtin:grep>` form, preventing false setup failures.
 - The `pi` wrapper script installed by Sandburg
   (which enforces Sandburg restrictions on nested `pi` commands)
   used to execute the parent Pi executable.
