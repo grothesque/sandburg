@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.1.2] - 2026-09-30
 
 - Accept Pi 0.99.0's `builtin:grep`-style tool source paths alongside the older
   `<builtin:grep>` form, preventing false setup failures.
