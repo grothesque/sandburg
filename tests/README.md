@@ -108,9 +108,8 @@ Important caveats:
   when its modules load.
   Tests that vary those values need isolation
   and should keep them stable for a harness session.
-- Pi provider/API registration can involve process-global state.
-  Use unique provider names
-  and always dispose harnesses so faux providers are unregistered.
+- Use unique faux provider names and a fresh model runtime for each SDK harness.
+  Always dispose harnesses to release session-scoped state.
 - `grep` is not a default active tool in SDK sessions;
   enable it explicitly with a `tools` allowlist when testing it.
 - `bwrap` must be usable on the host/kernel,

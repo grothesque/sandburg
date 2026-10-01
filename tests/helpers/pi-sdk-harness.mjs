@@ -89,19 +89,17 @@ const piAi = await importWithFallback(
 );
 
 const {
-	AuthStorage,
 	createAgentSession,
 	DefaultResourceLoader,
-	ModelRegistry,
+	ModelRuntime,
 	SessionManager,
 	SettingsManager,
 } = piSdk;
 
 export {
-	AuthStorage,
 	createAgentSession,
 	DefaultResourceLoader,
-	ModelRegistry,
+	ModelRuntime,
 	SessionManager,
 	SettingsManager,
 };
@@ -188,7 +186,7 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 	if (!Array.isArray(responses)) throw new Error("createSandburgSdkSession requires a responses array");
 
 	const restoreProcessEnv = applySessionEnv(agentDir, env);
-	const faux = piAi.registerFauxProvider({
+	const faux = piAi.fauxProvider({
 		provider: `sandburg-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 	});
 	faux.setResponses(responses);
@@ -196,8 +194,12 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 	let session;
 	let unsubscribe = () => {};
 	try {
-		const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
-		authStorage.setRuntimeApiKey(faux.getModel().provider, "dummy");
+		const modelRuntime = await ModelRuntime.create({
+			authPath: join(agentDir, "auth.json"),
+			modelsPath: join(agentDir, "models.json"),
+		});
+		modelRuntime.registerNativeProvider(faux.provider);
+		await modelRuntime.setRuntimeApiKey(faux.getModel().provider, "dummy");
 
 		const settingsManager = SettingsManager.inMemory({
 			compaction: { enabled: false },
@@ -219,8 +221,7 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 		const result = await createAgentSession({
 			cwd,
 			agentDir,
-			authStorage,
-			modelRegistry: ModelRegistry.inMemory(authStorage),
+			modelRuntime,
 			model: faux.getModel(),
 			resourceLoader: loader,
 			sessionManager: SessionManager.inMemory(),
@@ -249,7 +250,6 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 				unsubscribe();
 				emitTestSessionShutdown(session);
 				session.dispose();
-				faux.unregister();
 				restoreProcessEnv();
 			},
 		};
@@ -257,7 +257,6 @@ export async function createSandburgSdkSession({ cwd, agentDir, responses, env =
 		unsubscribe();
 		emitTestSessionShutdown(session);
 		session?.dispose();
-		faux.unregister();
 		restoreProcessEnv();
 		throw error;
 	}

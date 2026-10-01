@@ -3,6 +3,7 @@
 import type {
 	AssistantMessage,
 	AssistantMessageEventStream,
+	JsonObject,
 	Model,
 	SimpleStreamOptions,
 	ToolCall,
@@ -14,7 +15,7 @@ type ScriptStep = {
 	text?: string;
 	toolCalls?: Array<{
 		name: string;
-		arguments?: Record<string, unknown>;
+		arguments?: JsonObject;
 		id?: string;
 	}>;
 };

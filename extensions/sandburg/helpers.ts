@@ -1,5 +1,5 @@
 // Sandburg helper installers and shell wrapper generation
-import { createGrepToolDefinition, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createGrepToolDefinition, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "child_process";
 import {
 	accessSync,
@@ -728,7 +728,7 @@ export function installSandburgPiWrapper(): PiWrapperInstallResult {
 	};
 }
 
-function probeExtensionContext(cwd: string): ExtensionContext {
+function probeExtensionContext(cwd: string): ExtensionToolContext {
 	return {
 		ui: {
 			select: async () => undefined,
@@ -762,12 +762,19 @@ function probeExtensionContext(cwd: string): ExtensionContext {
 			getToolsExpanded: () => false,
 			setToolsExpanded: () => {},
 		},
+		mode: "print",
 		hasUI: false,
 		cwd,
 		sessionManager: undefined as never,
 		modelRegistry: undefined as never,
 		model: undefined,
+		scopedModels: [],
 		isIdle: () => true,
+		isProjectTrusted: () => false,
+		tools: [],
+		executeTool: async () => {
+			throw new Error("Sandburg grep-wrapper probe does not support nested tool calls.");
+		},
 		signal: undefined,
 		abort: () => {},
 		hasPendingMessages: () => false,

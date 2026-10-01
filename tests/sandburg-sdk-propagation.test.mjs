@@ -8,9 +8,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-	AuthStorage,
 	DefaultResourceLoader,
-	ModelRegistry,
+	ModelRuntime,
 	SessionManager,
 	SettingsManager,
 	createAgentSession,
@@ -65,15 +64,18 @@ async function disposeNestedSession(session) {
 	session?.dispose();
 }
 
-async function createNestedSession({ cwd, agentDir, loader, model, settingsManager }) {
-	const authStorage = AuthStorage.create(join(agentDir, "nested-auth.json"));
-	authStorage.setRuntimeApiKey(model.provider, "dummy");
+async function createNestedSession({ cwd, agentDir, loader, faux, settingsManager }) {
+	const modelRuntime = await ModelRuntime.create({
+		authPath: join(agentDir, "nested-auth.json"),
+		modelsPath: join(agentDir, "nested-models.json"),
+	});
+	modelRuntime.registerNativeProvider(faux.provider);
+	await modelRuntime.setRuntimeApiKey(faux.getModel().provider, "dummy");
 	const result = await createAgentSession({
 		cwd,
 		agentDir,
-		authStorage,
-		modelRegistry: ModelRegistry.inMemory(authStorage),
-		model,
+		modelRuntime,
+		model: faux.getModel(),
 		resourceLoader: loader,
 		sessionManager: SessionManager.inMemory(),
 		settingsManager,
@@ -256,7 +258,7 @@ test("SDK-created nested sessions receive Sandburg-managed built-in tools", asyn
 			cwd,
 			agentDir,
 			loader: nestedLoader,
-			model: harness.faux.getModel(),
+			faux: harness.faux,
 			settingsManager: nestedSettingsManager,
 		});
 		nestedSession = nestedResult.session;
