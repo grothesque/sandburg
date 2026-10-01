@@ -1,5 +1,5 @@
 // Sandburg helper installers and shell wrapper generation
-import { createGrepToolDefinition, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import { createGrepTool } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "child_process";
 import {
 	accessSync,
@@ -728,63 +728,6 @@ export function installSandburgPiWrapper(): PiWrapperInstallResult {
 	};
 }
 
-function probeExtensionContext(cwd: string): ExtensionToolContext {
-	return {
-		ui: {
-			select: async () => undefined,
-			confirm: async () => false,
-			input: async () => undefined,
-			notify: () => {},
-			onTerminalInput: () => () => {},
-			setStatus: () => {},
-			setWorkingMessage: () => {},
-			setWorkingVisible: () => {},
-			setWorkingIndicator: () => {},
-			setHiddenThinkingLabel: () => {},
-			setWidget: () => {},
-			setFooter: () => {},
-			setHeader: () => {},
-			setTitle: () => {},
-			custom: async () => {
-				throw new Error("Sandburg grep-wrapper probe does not support interactive UI.");
-			},
-			pasteToEditor: () => {},
-			setEditorText: () => {},
-			getEditorText: () => "",
-			editor: async () => undefined,
-			addAutocompleteProvider: () => {},
-			setEditorComponent: () => {},
-			getEditorComponent: () => undefined,
-			theme: undefined as never,
-			getAllThemes: () => [],
-			getTheme: () => undefined,
-			setTheme: () => ({ success: false, error: "Sandburg grep-wrapper probe does not support themes." }),
-			getToolsExpanded: () => false,
-			setToolsExpanded: () => {},
-		},
-		mode: "print",
-		hasUI: false,
-		cwd,
-		sessionManager: undefined as never,
-		modelRegistry: undefined as never,
-		model: undefined,
-		scopedModels: [],
-		isIdle: () => true,
-		isProjectTrusted: () => false,
-		tools: [],
-		executeTool: async () => {
-			throw new Error("Sandburg grep-wrapper probe does not support nested tool calls.");
-		},
-		signal: undefined,
-		abort: () => {},
-		hasPendingMessages: () => false,
-		shutdown: () => {},
-		getContextUsage: () => undefined,
-		compact: () => {},
-		getSystemPrompt: () => "",
-	};
-}
-
 // Probe Pi's public grep tool factory rather than guessing lookup behavior.
 // The generated rg wrapper exits early with a distinctive stderr message when
 // this env var is set, so the probe does not write to disk or enter the tool sandbox.
@@ -792,7 +735,7 @@ export async function verifyPiGrepReachesRgWrapper(): Promise<string[]> {
 	const previousProbe = process.env.SANDBURG_RG_WRAPPER_PROBE;
 	process.env.SANDBURG_RG_WRAPPER_PROBE = ACTIVE_MARKER;
 	try {
-		await createGrepToolDefinition(AGENT_BIN_DIR).execute(
+		await createGrepTool(AGENT_BIN_DIR).execute(
 			"sandburg-rg-wrapper-probe",
 			{
 				pattern: "sandburg-wrapper-probe-pattern-that-should-not-matter",
@@ -802,7 +745,6 @@ export async function verifyPiGrepReachesRgWrapper(): Promise<string[]> {
 			},
 			undefined,
 			undefined,
-			probeExtensionContext(AGENT_BIN_DIR),
 		);
 	} catch (error) {
 		const message = errorMessage(error);
